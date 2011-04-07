@@ -1,0 +1,33 @@
+<?php
+
+/**
+ * @file
+ * Install file for recruit_schedule.module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function recruit_schedule_install() {
+
+}
+
+/**
+ * Implementation of hook_field_schema().
+ */
+function recruit_schedule_field_schema($field) {
+
+  if ($field['type'] == 'recruit_schedule') {
+
+    $schema['columns']['unpublish'] = array(
+      'type' => 'int',
+      'not null' => FALSE,
+    );
+
+    $schema['indexes'] = array(
+      'unpublish' => array('unpublish'),
+    );
+
+    return $schema;
+  }
+}

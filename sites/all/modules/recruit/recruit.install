@@ -1,0 +1,21 @@
+<?php
+
+/**
+ * @file
+ * Defines installation code.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function recruit_install() {
+
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function recruit_uninstall() {
+
+}
+

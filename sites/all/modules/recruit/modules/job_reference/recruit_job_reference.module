@@ -1,0 +1,373 @@
+<?php
+
+/**
+ * @file
+ * Custom field used to display jobs in any entities.
+ */
+
+/**
+ * Implementation of hook_field_info().
+ */
+function recruit_job_reference_field_info() {
+  return array(
+    'recruit_job_reference' => array(
+      'label' => t('Job reference'),
+      'description' => t('Attach jobs to any content types'),
+      'default_widget' => 'recruit_job_reference_select_list',
+      'default_formatter' => 'recruit_job_reference_job_ref_link',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function recruit_job_reference_field_widget_info() {
+  return array(
+    'recruit_job_reference_autocomplete' => array(
+      'label' => t('Autocomplete text field'),
+      'field types' => array('recruit_job_reference'),
+      'settings' => array(
+        'autocomplete_match' => 'contains',
+        'size' => 60,
+        'autocomplete_path' => 'recruit_job/autocomplete',
+      ),
+      'behaviors' => array(
+        'multiple values' => FIELD_BEHAVIOR_CUSTOM,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function recruit_job_reference_field_formatter_info() {
+  return array(
+    'recruit_job_reference_job_ref_link' => array(
+      'label' => t('Job ref (link)'),
+      'description' => t('Display the Job ref of the referenced job as a link to the node page.'),
+      'field types' => array('recruit_job_reference'),
+    ),
+    'recruit_job_reference_job_ref_plain' => array(
+      'label' => t('Job ref (no link)'),
+      'description' => t('Display the Job ref of the referenced job as plain text.'),
+      'field types' => array('recruit_job_reference'),
+    ),
+    'recruit_job_reference_title_link' => array(
+      'label' => t('Title (link)'),
+      'description' => t('Display the title of the referenced job as a link to the node page.'),
+      'field types' => array('recruit_job_reference'),
+    ),
+    'recruit_job_reference_title_plain' => array(
+      'label' => t('Title (no link)'),
+      'description' => t('Display the title of the referenced job as plain text.'),
+      'field types' => array('recruit_job_reference'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function recruit_job_reference_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $result = array();
+
+  // Collect the list of job IDs.
+  $jids = array();
+
+  foreach ($items as $delta => $item) {
+    $jids[$item['jid']] = $item['jid'];
+  }
+
+  $jobs = _recruit_job_reference_get_job_data($jids);
+  
+  switch ($display['type']) {
+    case 'recruit_job_reference_job_ref_link':
+    case 'recruit_job_reference_job_ref_plain':
+      foreach ($items as $delta => $item) {
+        if ($display['type'] == 'recruit_job_reference_job_ref_link') {
+          $result[$delta] = array(
+            '#type' => 'link',
+            '#title' => $jobs[$item['jid']]['job_ref'],
+            '#href' => 'recruit-job/' . $item['jid'],
+          );
+        }
+        else {
+          $result[$delta] = array(
+            '#markup' => check_plain($jobs[$item['jid']]['job_ref']),
+          );
+        }
+      }
+      break;
+
+    case 'recruit_job_reference_title_link':
+    case 'recruit_job_reference_title_plain':
+      foreach ($items as $delta => $item) {
+        if ($display['type'] == 'recruit_job_reference_title_link') {
+          $result[$delta] = array(
+            '#type' => 'link',
+            '#title' => $jobs[$item['jid']]['title'],
+            '#href' => 'recruit-job/' . $item['jid'],
+          );
+        }
+        else {
+          $result[$delta] = array(
+            '#markup' => check_plain($jobs[$item['jid']]['title']),
+          );
+        }
+      }
+      break;
+  }
+
+  return $result;
+}
+
+/**
+ * Loads and caches job job refs and titles for the current request.
+ *
+ * @param $jids
+ *   An array of job IDs to load.
+ * @param $known_jobs
+ *   An array of job data to cache at this time. Should be in the format of
+ *     an array keyed by jid with the value being an array with the keys
+ *     'job_ref' and 'title'.
+ *
+ * @return
+ *   An array of job data keyed by jid with the value being an array
+ *     with the keys 'job_ref' and 'title'.
+ */
+function _recruit_job_reference_get_job_data($jids, $known_jobs = array()) {
+  $jobs = &drupal_static(__FUNCTION__, array());
+
+  // Save titles we receive.
+  $jobs += $known_jobs;
+
+  // Collect jids to retrieve from database.
+  $jids_query = array();
+
+  foreach ($jids as $jid) {
+    if (!isset($jobs[$jid])) {
+      $jids_query[] = $jid;
+    }
+  }
+
+  // If there are unknown job IDs...
+  if ($jids_query) {
+    // Load the specified jobs.
+    $query = db_select('recruit_job', 'rj')
+      ->fields('rj', array('jid', 'job_ref', 'title'))
+      ->condition('rj.jid', $jids);
+
+    $data = $query->execute()->fetchAll();
+
+    foreach ($data as $job) {
+      $jobs[$job->jid] = array(
+        'job_ref' => $job->job_ref,
+        'title' => $job->title,
+      );
+    }
+  }
+
+  // Build the results array.
+  $return = array();
+
+  foreach ($jids as $jid) {
+    $return[$jid] = array(
+      'job_ref' => isset($jobs[$jid]['job_ref']) ? $jobs[$jid]['job_ref'] : '',
+      'title' => isset($jobs[$jid]['title']) ? $jobs[$jid]['title'] : '',
+    );
+  }
+
+  return $return;
+}
+
+/**
+ * Implementation of hook_field_is_empty().
+ */
+function recruit_job_reference_field_is_empty($item, $field) {
+
+  if ($field['type'] == 'recruit_job_reference') {
+
+    if (empty($item['jid'])) {
+     return TRUE;
+    }
+
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_field_settings_form().
+ */
+function recruit_job_reference_field_settings_form($field, $instance, $has_data) {
+  if ($field['type'] == 'recruit_job_reference') {
+    $settings = $field['settings'];
+    $form = array();
+
+    // Build an options array of the job types.
+    foreach (recruit_job_get_types() as $type => $name) {
+      $options[$type] = check_plain($name->label);
+    }
+
+    $form['referenceable_types'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Job types that can be referenced'),
+      '#description' => t('If no types are selected, any type of job may be referenced.'),
+      '#options' => $options,
+      '#default_value' => is_array($settings['referenceable_types']) ? $settings['referenceable_types'] : array(),
+      '#multiple' => TRUE,
+      '#disabled' => $has_data,
+    );
+
+    return $form;
+  }
+}
+
+/**
+ * Implementation of hook_field_validate().
+ */
+function recruit_job_reference_field_validate($obj_type, $object, $field, $instance, $langcode, &$items, &$errors) {
+  if ($field['type'] == 'recruit_job_reference') {
+
+  }
+}
+
+/**
+ * Implements hook_field_widget_settings_form().
+ */
+function recruit_job_reference_field_widget_settings_form($field, $instance) {
+  $widget = $instance['widget'];
+  $defaults = field_info_widget_settings($widget['type']);
+  $settings = array_merge($defaults, $widget['settings']);
+
+  $form = array();
+
+  // Build the settings for the job reference autocomplete widget.
+  if ($widget['type'] == 'recruit_job_reference_autocomplete') {
+    $form['autocomplete_match'] = array(
+      '#type' => 'select',
+      '#title' => t('Autocomplete matching'),
+      '#default_value' => $settings['autocomplete_match'],
+      '#options' => array(
+        'starts_with' => t('Starts with'),
+        'contains' => t('Contains'),
+      ),
+      '#description' => t('Select the method used to collect autocomplete suggestions. Note that <em>Contains</em> can cause performance issues on sites with thousands of nodes.'),
+    );
+    $form['size'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Size of textfield'),
+      '#default_value' => $settings['size'],
+      '#element_validate' => array('_element_validate_integer_positive'),
+      '#required' => TRUE,
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Implementation of hook_field_widget_form().
+ */
+function recruit_job_reference_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $base = $element;
+  if ($instance['widget']['type'] == 'recruit_job_reference_autocomplete') {
+    $widget = $instance['widget'];
+    $settings = $widget['settings'];
+    
+    $jids = array();
+    $job_refs = array();
+
+    // Build an array of job IDs from this field's values.
+    foreach ($items as $item) {
+      $jids[] = $item['jid'];
+    }
+
+    // Load those jobs and loop through them to extract their job ref's.
+    $jobs = recruit_job_load_multiple($jids);
+
+    foreach ($jids as $jid) {
+      $job_refs[] = $jobs[$jid]->job_ref;
+    }
+
+    return $element + array(
+      '#type' => 'textfield',
+      '#default_value' => implode(', ', $job_refs),
+      '#autocomplete_path' => $instance['widget']['settings']['autocomplete_path'] . '/' . $field['field_name'],
+      '#size' => $instance['widget']['settings']['size'],
+      '#element_validate' => array('recruit_job_reference_autocomplete_validate'),
+    );
+  }
+
+  return $element;
+}
+
+/**
+ * Validation callback for a recruit_job_reference autocomplete element.
+ */
+function recruit_job_reference_autocomplete_validate($element, &$form_state, $form) {
+  // If a value was entered into the autocomplete...
+  if (!empty($element['#value'])) {
+
+    // Translate SKUs into job IDs.
+    $typed_job_refs = drupal_explode_tags($element['#value']);
+
+    $value = array();
+
+    // Loop through all the entered SKUs...
+    foreach ($typed_job_refs as $typed_job_ref) {
+      // To see if the job actually exists...
+      if ($job = recruit_job_load_by_job_ref(trim($typed_job_ref))) {
+
+        foreach($job as $jid) {
+          // And store its job ID for later validation.
+          $value[] = array('jid' => $jid->jid);
+        }
+
+      }
+    }
+  }
+  else {
+    $value = array();
+  }
+  // Update the value of this element so the field can validate the job IDs.
+  form_set_value($element, $value, $form_state);
+}
+
+/**
+ * Implements hook_field_widget_error().
+ */
+function recruit_job_reference_field_widget_error($element, $error) {
+  form_error($element, $error['message']);
+}
+
+/**
+ * Implements hook_field_widget_info_alter().
+ */
+function recruit_job_reference_field_widget_info_alter(&$info) {
+  $info['options_select']['field types'][] = 'recruit_job_reference';
+  $info['options_buttons']['field types'][] = 'recruit_job_reference';
+}
+
+/**
+ * Implements hook_options_list().
+ */
+function recruit_job_reference_options_list($field) {
+  $options = array();
+
+  // Loop through all job matches.
+  foreach (recruit_job_match_jobs($field) as $jid => $data) {
+    // Add them to the options list in optgroups by job type.
+    $name = recruit_job_get_types($data['type']);
+    $options[$name->label][$jid] = t('@job_ref: @title', array('@job_ref' => $data['job_ref'], '@title' => $data['title']));
+  }
+
+  // Simplify the options list if only one optgroup exists.
+  if (count(array_keys($options)) == 1) {
+    $options = $options[array_shift(array_keys($options))];
+  }
+
+  return $options;
+}

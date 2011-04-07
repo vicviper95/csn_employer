@@ -1,0 +1,71 @@
+<?php
+
+/**
+ * @file
+ * Global recruit module.
+ */
+
+/**
+ * Finds all fields of a particular field type.
+ *
+ * @param $field_type
+ *   The type of field to search for.
+ * @param $entity_type
+ *   Optional entity type to restrict the search to.
+ *
+ * @return
+ *   An array of the matching fields keyed by the field name.
+ */
+function recruit_info_fields($field_type, $entity_type = NULL) {
+  $fields = array();
+
+  foreach (field_info_fields() as $field_name => $field) {
+    if ($field['type'] == $field_type) {
+      // Add this field to the return array if no entity type was specified or
+      // if the specified type exists in the field's bundles array.
+      if (empty($entity_type) || in_array($entity_type, array_keys($field['bundles']))) {
+        $fields[$field_name] = $field;
+      }
+    }
+  }
+
+  return $fields;
+}
+
+/**
+ * Load a single entity object using the passed in entity_type and entity_id
+ *
+ * @param $entity_type
+ *   The type of entity
+ * @param $entity_id
+ *   The id of the entity
+ *
+ * @return
+ *   An entity object.
+ */
+function recruit_entity_load_single($entity_type, $entity_id) {
+  $entity_load = entity_load($entity_type, array($entity_id));
+
+  if (!empty($entity_load)) {
+    $entity = $entity_load[$entity_id];
+
+    //Adding extra entity information.
+    $entity->entity_type = $entity_type;
+    $entity->entity_id = $entity_id;
+    return $entity;
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function recruit_permission() {
+  $permissions = array(
+    'access recruit administration pages' =>  array(
+      'title' => t('Access recruit administration pages'),
+      'description' => t('Access drupal recruits administration pages'),
+    ),
+  );
+
+  return $permissions;
+}

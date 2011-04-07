@@ -1,0 +1,121 @@
+<?php
+
+/**
+ * @file
+ * Unit/Functional tests for the application module.
+ */
+
+/**
+ * Test the application and application type CRUD.
+ */
+class RecruitApplicationCRUDTestCase extends DrupalWebTestCase {
+  public static function getInfo() {
+    return array(
+      'name' => 'Recruit application API CRUD',
+      'description' => 'Tests the application CRUD functions.',
+      'group' => 'Recruit',
+    );
+  }
+
+  function setUp() {
+    parent::setUp('recruit_application');
+  }
+
+  /**
+   * Ensure the default application types are created when installing recruit_application.module.
+  */
+  function testRecruitApplicationDefaultApplications() {
+    $default_types = array(
+      'application' => 'application',
+    );
+
+    $types_created = recruit_application_get_types();
+    
+    //Not testing for default application type.
+    foreach ($default_types as $type => $name) {
+      $this->assertTrue(!empty($types_created[$type]), 'application type ' . check_plain($type) . ' has been created.');
+    }
+  }
+
+  /**
+   * Test the application type CRUD functions.
+   */
+  function testRecruitApplicationTypeCrud() {
+    // Ensure recruit_application_type_new() returns a valid empty application type.
+    $new_application_type = recruit_application_type_new();
+    $this->assertNotNull($new_application_type->type, 'recruit_application_type_new() instantiated the type property.');
+    $this->assertNotNull($new_application_type->label, 'recruit_application_type_new() instantiated the name property.');
+    $this->assertNotNull($new_application_type->description, 'recruit_application_type_new() instantiated the description property.');
+    $this->assertNotNull($new_application_type->help, 'recruit_application_type_new() instantiated the help property');
+
+    // Supply customer values for the application type properties.
+    $type = $this->randomName(20);
+    $name = $this->randomName(40);
+    $description = $this->randomString(128);
+    $help = $this->randomString(128);
+
+    // Add the values to the new content type.
+    $new_application_type->type = $type;
+    $new_application_type->label = $name;
+    $new_application_type->description = $description;
+    $new_application_type->help = $help;
+    $new_application_type->is_new = TRUE;
+
+    // Ensure recruit_application_type_new() returns the proper value when inserting.
+    $return = recruit_application_type_save($new_application_type);
+    $this->assertEqual($return, SAVED_NEW, 'recruit_application_type_save() returned SAVED_NEW when saving a new application type.');
+
+    // Load the newly saved content type.
+    $saved_application_type = recruit_application_type_load($type);
+
+    // Ensure the values that were saved match the values that we created.
+    $this->assertTrue($saved_application_type, 'recruit_application_type_load() loaded the new application type.');
+    $this->assertEqual($type, $saved_application_type->type, 'The new application type type was properly saved and loaded.');
+    $this->assertEqual($name, $saved_application_type->label, 'The new application type label was properly saved and loaded.');
+    $this->assertEqual($description, $saved_application_type->description, 'The new application type description text was properly saved and loaded.');
+    $this->assertEqual($help, $saved_application_type->help, 'The new application type help text was properly saved and loaded.');
+
+    // Alter the title, to ensure the update function works.
+    $altered_name = $this->randomName(40);
+    $saved_application_type->label = $altered_name;
+    
+    // Ensure recruit_application_type_save() returns the proper value when updating.
+    $return = recruit_application_type_save($saved_application_type);
+    $this->assertEqual($return, SAVED_UPDATED, 'recruit_application_type_save() returned SAVED_UPDATED when saving an updated application type.');
+
+    // Reset the cached application types, and verify recruit_application_get_types load the saved type.
+    #recruit_application_types_reset();
+    $types = recruit_application_get_types();
+    $this->assertNotNull($types[$type], 'recruit_application_types_reset() successfully reset the application types.');
+    $this->assertEqual($saved_application_type->label, $altered_name, 'recruit_application_type_save() successfully updated the application type name.');
+
+    // Ensure recruit_application_type_delete() deletes a content type.
+    #recruit_application_type_delete($type);
+    #$deleted_type = recruit_application_type_load($type);
+    #$this->assertFalse($deleted_type, 'recruit_application_type_delete() successfully removed a application type.');
+  }
+
+
+  
+  /**
+   * Test application Token replacement.
+   */
+  /*
+  function testRecruitapplicationTokens() {
+    $application = recruit_application_new('application');
+    $application->application_ref = $this->randomName(10);
+    $application->title = $this->randomName(10);
+    $application->uid = 1;
+    $application = recruit_application_save($application);
+
+    $this->assertEqual(token_replace('[application:application-id]', array('application' => $application)), $application->application_id, '[application:application-id] was replaced with the application ID.');
+    $this->assertEqual(token_replace('[application:application-ref]', array('application' => $application)), $application->application_ref, '[application:application-ref] was replaced with the application reference.');
+    $this->assertEqual(token_replace('[application:type]', array('application' => $application)), recruit_application_type_get_name($application->type), '[application:type] was replaced with the application type.');
+    $this->assertEqual(token_replace('[application:title]', array('application' => $application)), $application->title, '[application:title] was replaced with the title.');
+    $this->assertNotIdentical(strpos(token_replace('[application:edit-url]', array('application' => $application)), url('admin/recruit/applications/' . $application->application_id . '/edit')), FALSE, '[application:edit-url] was replaced with the edit URL.');
+    $this->assertEqual(token_replace('[application:created]', array('application' => $application)), format_date($application->created, 'medium'), '[application:created] was replaced with the created date.');
+  }
+   * 
+   */
+ 
+}

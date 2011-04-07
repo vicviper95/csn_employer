@@ -1,0 +1,831 @@
+<?php
+
+/**
+ * @file
+ * Defines Recruit Job entity.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function recruit_job_menu() {
+  $items = array();
+
+  $items['recruit_job/autocomplete'] = array(
+    'title' => 'recruit_job autocomplete',
+    'page callback' => 'recruit_job_autocomplete',
+    'access arguments' => array('access jobs'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function recruit_job_entity_info() {
+  $return = array(
+    'recruit_job' => array(
+      'label' => t('Job'),
+      'entity class' => 'RecruitJob',
+      'controller class' => 'EntityAPIController',
+      'base table' => 'recruit_job',
+      'fieldable' => TRUE,
+      'view modes' => array(
+        'admin' => array(
+          'label' => t('Administration display'),
+          'custom settings' => FALSE,
+        ),
+        'teaser' => array(
+          'label' => t('Teaser'),
+          'custom settings' => TRUE,
+        ),
+        'full' => array(
+          'label' => t('Full content'),
+          'custom settings' => FALSE,
+        ),
+        ' rss' => array(
+          'label' => t('RSS'),
+          'custom settings' => FALSE,
+        ),
+      ),
+      'entity keys' => array(
+        'id' => 'jid',
+        'bundle' => 'type',
+        'label' => 'title',
+      ),
+      'bundles' => array(),
+      'bundle keys' => array(
+        'bundle' => 'type',
+      ),
+      'uri callback' => 'recruit_job_uri_callback',
+      'access callback' => 'recruit_job_access',
+      'module' => 'recruit_job',
+      'metadata controller class' => 'RecruitJobMetadataController',
+    ),
+  );
+  $return['recruit_job_type'] = array(
+    'label' => t('Job type'),
+    'entity class' => 'RecruitJobType',
+    'controller class' => 'EntityAPIController',
+    'base table' => 'recruit_job_type',
+    'fieldable' => FALSE,
+    'bundle of' => 'recruit_job',
+    'exportable' => TRUE,
+    'entity keys' => array(
+      'id' => 'id',
+      'name' => 'type',
+      'label' => 'label',
+    ),
+    'access callback' => 'recruit_job_type_access',
+    'module' => 'recruit_job',
+    // Enable the entity API's admin UI.
+    'admin ui' => array(
+      'path' => 'admin/recruit/jobs/types',
+      'file' => 'includes/recruit_job.admin.inc',
+      'controller class' => 'RecruitJobTypeUIController',
+    ),
+  );
+  return $return;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Use this hook to specify job bundles to avoid a recursion, as loading
+ * the job types needs the entity info too.
+ */
+function recruit_job_entity_info_alter(&$entity_info) {
+  foreach (recruit_job_get_types() as $type => $info) {
+    $entity_info['recruit_job']['bundles'][$type] = array(
+      'label' => $info->label,
+      'admin' => array(
+        'path' => 'admin/recruit/jobs/types/manage/%recruit_job_type',
+        'real path' => 'admin/recruit/jobs/types/manage/' . $type,
+        'bundle argument' => 5,//IMPORTANT: Double check this value when you change 'path' or 'real path'
+        'access arguments' => array('administer jobs'),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function recruit_job_field_extra_fields() {
+  $extra = array();
+
+  foreach (recruit_job_get_types() as $type => $job_type) {
+    $extra['recruit_job'][$type] = array(
+      'form' => array(
+        'job_ref' => array(
+          'label' => 'Job Reference',
+          'description' => t('Job module job reference form element'),
+          'weight' => -10,
+        ),
+        'title' => array(
+          'label' => 'Title',
+          'description' => t('Job module title form element'),
+          'weight' => -5,
+        ),
+        'status' => array(
+          'label' => 'Status',
+          'description' => t('Job module status form element'),
+          'weight' => 35,
+        ),
+      ),
+      'display' => array(
+        'job_ref' => array(
+          'label' => 'Job Reference',
+          'description' => t('The human readable identifier of the job'),
+          'weight' => -10,
+        ),
+        'title' => array(
+          'label' => 'Title',
+          'description' => t('Full job title'),
+          'weight' => -5,
+        ),
+      ),
+    );
+  }
+
+  return $extra;
+}
+
+/**
+ * Menu argument loader; Load a job type by string.
+ *
+ * @param $type
+ *   The machine-readable name of a job type to load.
+ * @return
+ *   A job type array or FALSE if $type does not exist.
+ */
+function recruit_job_type_load($type) {
+  return recruit_job_get_types($type);
+}
+
+/**
+ * Implements hook_permission().
+ */
+function recruit_job_permission() {
+  $permissions = array(
+    'administer job types' =>  array(
+      'title' => t('Administer job types'),
+      'description' => t('Create and delete fields on jobs, and set their permissions.'),
+    ),
+    'administer jobs' =>  array(
+      'title' => t('Administer jobs'),
+      'description' => t('Edit and view all jobss.'),
+    ),
+    'access jobs' => array(
+      'title' => t('Access jobs'),
+      'description' => t('Allows users to view lists of jobs in the administration section.'),
+    ),
+    'access public jobs' => array(
+      'title' => t('Access public jobs'),
+      'description' => t('Allows users to view active public jobs.'),
+    ),
+  );
+  // Generate per job type permissions.
+  foreach (recruit_job_get_types() as $type) {
+    $type_name = check_plain($type->type);
+    $permissions += array(
+      "create $type_name jobs" => array(
+        'title' => t('%type_name: create jobs', array('%type_name' => $type->label)),
+      ),
+      "edit own $type_name job" => array(
+        'title' => t('%type_name: Edit own job', array('%type_name' => $type->label)),
+      ),
+      "edit any $type_name job" => array(
+        'title' => t('%type_name: Edit any job', array('%type_name' => $type->label)),
+      ),
+    );
+  }
+  return $permissions;
+}
+
+/**
+ * Gets an array of all job types, keyed by the type name.
+ *
+ * @param $type_name
+ *   If set, the type with the given name is returned.
+ * @return RecruitJobType[]
+ *   Depending whether $type isset, an array of job types or a single one.
+ */
+function recruit_job_get_types($type_name = NULL) {
+  $types = entity_load('recruit_job_type', isset($type_name) ? array($type_name) : FALSE);
+  return isset($type_name) ? reset($types) : $types;
+}
+
+/**
+ * Fetch a job object.
+ *
+ * @param $jid
+ *   Integer specifying the job id.
+ * @param $reset
+ *   A boolean indicating that the internal cache should be reset.
+ * @return
+ *   A fully-loaded $job object or FALSE if it cannot be loaded.
+ *
+ * @see recruit_job_load_multiple()
+ */
+function recruit_job_load($jid, $reset = FALSE) {
+  $jobs = recruit_job_load_multiple(array($jid), array(), $reset);
+  return reset($jobs);
+}
+
+/**
+ * Load multiple jobs based on certain conditions.
+ *
+ * @param $jids
+ *   An array of job IDs.
+ * @param $conditions
+ *   An array of conditions to match against the {recruit_job} table.
+ * @param $reset
+ *   A boolean indicating that the internal cache should be reset.
+ * @return
+ *   An array of job objects, indexed by pid.
+ *
+ * @see entity_load()
+ * @see recruit_job_load()
+ */
+function recruit_job_load_multiple($jids = array(), $conditions = array(), $reset = FALSE) {
+  return entity_load('recruit_job', $jids, $conditions, $reset);
+}
+
+/**
+ * Default uri callback.
+ *
+ * @see RecruitJob::uri()
+ */
+function recruit_job_uri_callback($job) {
+  return array(
+    'path' => 'recruit-job/' . $job->jid,
+  );
+}
+
+/**
+ * Deletes a job.
+ */
+function recruit_job_delete(RecruitJob $job) {
+  $job->delete();
+}
+
+/**
+ * Delete multiple jobs.
+ *
+ * @param $jids
+ *   An array of job IDs.
+ */
+function recruit_job_delete_multiple(array $jids) {
+  entity_get_controller('recruit_job')->delete($jids);
+}
+
+/**
+ * Returns an initialized job object.
+ *
+ * @param $type
+ *   The machine-readable type of the job.
+ *
+ * @return
+ *   A job object with all default fields initialized.
+ */
+function recruit_job_new($type = '') {
+
+  $values = array(
+    'jid' => '',
+    'job_ref' => '',
+    'type' => $type,
+    'title' => '',
+    'uid' => '',
+    'status' => 1,
+    'created' => '',
+    'changed' => '',
+  );
+  
+  return new RecruitJob($values);
+}
+
+/**
+ * Returns an initialized job type object.
+ *
+ * @param $values
+ *   Pre populate job type object.
+ *
+ * @return
+ *   A job type object with all default fields initialized.
+ */
+function recruit_job_type_new($values = array()) {
+  return new RecruitJobType($values);
+}
+
+/**
+ * Create empty job object.
+ * It's better to use recruit_job_new();
+ *
+ * @param $values
+ *   You must pass $values array even if it's empty.
+ *   Example:
+ *   recruit_job_create(array('job_ref' => '', 'title' => '', 'status' => 1, 'type' => $type));
+ *   or
+ *   recruit_job_create(array());
+ *
+ * @return
+ *   Empty job object.
+ */
+function recruit_job_create(array $values) {
+  return new RecruitJob($values);
+}
+
+/**
+ * Saves a job to the database.
+ *
+ * @param $job
+ *   The job object.
+ */
+function recruit_job_save(RecruitJob $job) {
+  return $job->save();
+}
+
+/**
+ * Saves a job type to the db.
+ */
+function recruit_job_type_save(RecruitJobType $type) {
+  return $type->save();
+}
+
+/**
+ * Deletes a job type from.
+ */
+function recruit_job_type_delete(RecruitJobType $type) {
+  $type->delete();
+}
+
+/**
+ * Implements hook_recruit_job_load()
+ */
+function recruit_job_recruit_job_load($jobs) {
+  $types = recruit_job_get_types();
+  // Load the job's label.
+  foreach ($jobs as $job) {
+    if (isset($types[$job->type])) {
+      $job->label = $types[$job->type]->label;
+    }
+  }
+}
+
+/**
+ * Implements hook_recruit_job_type_delete()
+ */
+function recruit_job_recruit_job_type_delete($type) {
+  // Delete all jobs of this type.
+  if ($jids = array_keys(recruit_job_load_multiple(FALSE, array('type' => $type->type)))) {
+    recruit_job_delete_multiple($jids);
+  }
+}
+
+/**
+ * Determines whether the given user has access to a job.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create', 'delete'
+ *   or just 'edit' (being the same as 'create' or 'update').
+ * @param $job
+ *   Optionally a job or a job type o check access for. If nothing is
+ *   given, access for all jobs is determined.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the global user.
+ * @return boolean
+ *   Whether access is allowed or not.
+ */
+function recruit_job_access($op, $job = NULL, $account = NULL) {
+  global $user;
+  $account = isset($account) ? $account : $user;
+
+  if (user_access('administer jobs', $account)) {
+    return TRUE;
+  }
+
+  if ($op == 'view' && user_access('access jobs', $account)) {
+    return TRUE;
+  }
+
+  if (isset($job) && is_string($job) && $op == 'create' && user_access('create ' . $job . ' jobs', $account)) {
+    return TRUE;
+  }
+
+  if (isset($job) && ($op == 'update' || $op == 'delete')) {
+    if (user_access('edit any ' . $job->type . ' job', $account)) {
+      return TRUE;
+    }
+
+    // Others either don't have any access or must match the job uid.
+    if ($account->uid && user_access('edit own ' . $job->type . ' job', $account) && $job->uid == $account->uid) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Determines whether the given user has access to a publicly displayed job.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create', 'delete'
+ *   or just 'edit' (being the same as 'create' or 'update').
+ * @param $job
+ *   Optionally a job or a job type o check access for. If nothing is
+ *   given, access for all jobs is determined.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the global user.
+ * @return boolean
+ *   Whether access is allowed or not.
+ */
+function recruit_job_public_access($op, $job = NULL, $account = NULL) {
+  global $user;
+  $account = isset($account) ? $account : $user;
+
+  if (user_access('administer jobs', $account)) {
+    return TRUE;
+  }
+
+  if ($op == 'view') {
+    if (user_access('access jobs', $account)) {
+      return TRUE;
+    }
+    if (user_access('access public jobs', $account)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Access callback for the entity API.
+ */
+function recruit_job_type_access($op, $type = NULL, $account = NULL) {
+  return user_access('administer job types', $account);
+}
+
+
+/**
+ * Checks to see if a given job type already exists.
+ *
+ * @param $type
+ *   The string to match against existing types.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether or not the job type exists.
+ */
+function recruit_job_type_validate_type_unique($type) {
+  // Look for a match of the type.
+  if ($match_id = db_query('SELECT type FROM {recruit_job_type} WHERE type = :type', array(':type' => $type))->fetchField()) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+ * Validates a Job Reference string for acceptable characters.
+ *
+ * @param $job_ref
+ *   The Job Reference string to validate.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether or not the Job Reference contains valid characters.
+ */
+function recruit_job_validate_job_ref_characters($job_ref) {
+  return preg_match('!^[A-Za-z0-9_-]+$!', $job_ref);
+}
+
+/**
+ * Checks to see if a given job reference already exists for another job.
+ *
+ * @param $job_ref
+ *   The string to match against existing job references.
+ * @param $job_id
+ *   The ID of the job the job reference is for; an empty value represents the job reference is
+ *     meant for a new job.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether or not the job reference exists for another job.
+ */
+function recruit_job_validate_job_ref_unique($job_ref, $jid) {
+  // Look for an ID of a job matching the supplied job_ref.
+  if ($match_id = db_query('SELECT jid FROM {recruit_job} WHERE job_ref = :job_ref', array(':job_ref' => $job_ref))->fetchField()) {
+    // If this job_ref is supposed to be for a new job or a job other than
+    // the one that matched...
+    if (empty($jid) || $match_id != $jid) {
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function recruit_job_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'recruit_job') . '/includes/views',
+  );
+}
+
+/**
+ * Fetches an array of all jobs matching the given parameters.
+ *
+ * This info is used in various places (allowed values, autocomplete results,
+ * input validation...). Some of them only need the job_ids, others
+ * job_id + titles, others yet job_id + titles + rendered row (for
+ * display in widgets).
+ *
+ * The array we return contains all the potentially needed information,
+ * and lets calling functions use the parts they actually need.
+ *
+ * @param $field
+ *   The field description.
+ * @param $string
+ *   Optional string to filter job_refs and titles on (used by autocomplete).
+ * @param $match
+ *   Operator to match filtered job_refs and titles against, can be any of:
+ *   'contains', 'equals', 'starts_with'
+ * @param $ids
+ *   Optional job ids to lookup (used when $string and $match arguments are
+ *   not given).
+ * @param $limit
+ *   If non-zero, limit the size of the result set.
+ *
+ * @return
+ *   An array of valid jobs in the form:
+ *   array(
+ *     job_id => array(
+ *       'job_ref' => The job ref,
+ *       'title' => The job title,
+ *       'rendered' => The text to display in widgets (can be HTML)
+ *     ),
+ *     ...
+ *   )
+ */
+function recruit_job_match_jobs($field, $string = '', $match = 'contains', $ids = array(), $limit = NULL) {
+  $results = &drupal_static(__FUNCTION__, array());
+
+  // Create unique id for static cache.
+  $cid = implode(':', array(
+    $field['field_name'],
+    $match,
+    ($string !== '' ? $string : implode('-', $ids)),
+    $limit,
+  ));
+
+  if (!isset($results[$cid])) {
+    $matches = _recruit_job_match_jobs_standard($field, $string, $match, $ids, $limit);
+
+    // Store the results.
+    $results[$cid] = !empty($matches) ? $matches : array();
+  }
+
+  return $results[$cid];
+}
+
+/**
+ * Helper function for recruit_job_match_jobs().
+ *
+ * Returns an array of jobs matching the specific parameters.
+ */
+function _recruit_job_match_jobs_standard($field, $string = '', $match = 'contains', $ids = array(), $limit = NULL) {
+  // Build the query object with the necessary fields.
+  $query = db_select('recruit_job', 'rj');
+  $jid_alias = $query->addField('rj', 'jid');
+  $job_job_ref_alias = $query->addField('rj', 'job_ref');
+  $job_title_alias = $query->addField('rj', 'title');
+  $job_type_alias = $query->addField('rj', 'type');
+
+  // Add a condition to the query to filter by matching job types.
+  if (!empty($field['settings']) && is_array($field['settings']['referenceable_types']) && !empty($field['settings']['referenceable_types'])) {
+    $types = array_diff(array_values($field['settings']['referenceable_types']), array(0, NULL));
+
+    // Only filter by type if some types have been specified.
+    if (!empty($types)) {
+      $query->condition('rj.type', $types, 'IN');
+    }
+  }
+
+  if ($string !== '') {
+    $args = array();
+
+    // Build a where clause matching on either the job ref or title.
+    switch ($match) {
+      case 'contains':
+        $where = '(rj.job_ref LIKE :job_ref_match OR rj.title LIKE :title_match)';
+        $args['job_ref_match'] = '%' . $string . '%';
+        $args['title_match'] = '%' . $string . '%';
+        break;
+
+      case 'starts_with':
+        $where = '(rj.job_ref LIKE :job_ref_match OR rj.title LIKE :title_match)';
+        $args['job_ref_match'] = $string . '%';
+        $args['title_match'] = $string . '%';
+        break;
+
+      case 'equals':
+      default:
+        $where = '(rj.job_ref = :job_ref_match OR rj.title = :title_match)';
+        $args['job_ref_match'] = $string;
+        $args['title_match'] = $string;
+        break;
+    }
+
+    $query->where($where, $args);
+  }
+  elseif ($ids) {
+    // Otherwise add a jid specific condition if specified.
+    $query->condition($jid_alias, $ids, 'IN', $ids);
+  }
+
+  // Order the results by job_ref, title, and then job type.
+  $query
+    ->orderBy($job_job_ref_alias)
+    ->orderBy($job_title_alias)
+    ->orderBy($job_type_alias);
+
+  // Add a limit if specified.
+  if ($limit) {
+    $query->range(0, $limit);
+  }
+
+  // Execute the query and build the results array.
+  $result = $query->execute();
+
+  $matches = array();
+
+  foreach ($result->fetchAll() as $job) {
+    $matches[$job->jid] = array(
+      'job_ref' => $job->job_ref,
+      'type' => $job->type,
+      'title' => $job->title,
+      'rendered' => t('@job_ref: @title', array('@job_ref' => $job->job_ref, '@title' => $job->title)),
+    );
+  }
+
+  return $matches;
+}
+
+/**
+ * Returns output for job autocompletes.
+ *
+ * The values returned will be keyed by job_ref and appear as such in the textfield,
+ * even though the preview in the autocomplete list shows "job_ref: Title".
+ */
+function recruit_job_autocomplete($field_name, $string = '') {
+  $field = field_info_field($field_name);
+  $matches = array();
+
+  // The user enters a comma-separated list of tags. We only autocomplete the last tag.
+  $tags_typed = drupal_explode_tags($string);
+  $tag_last = drupal_strtolower(array_pop($tags_typed));
+
+  if (!empty($tag_last)) {
+    $prefix = count($tags_typed) ? implode(', ', $tags_typed) . ', ' : '';
+
+    // Determine the type of autocomplete match to use when searching for jobs.
+    $match = isset($field['widget']['autocomplete_match']) ? $field['widget']['autocomplete_match'] : 'contains';
+
+    // Get an array of matching jobs.
+    $jobs = recruit_job_match_jobs($field, $tag_last, $match, array(), 10);
+
+    // Loop through the jobs and convert them into autocomplete output.
+    foreach ($jobs as $jid => $data) {
+      // Add a class wrapper for a few required CSS overrides.
+      $matches[$prefix . $data['job_ref']] = '<div class="reference-autocomplete">' . $data['rendered'] . '</div>';
+    }
+  }
+
+  drupal_json_output($matches);
+}
+
+/**
+ * Loads a job by job reference.
+ */
+function recruit_job_load_by_job_ref($job_ref) {
+
+  $query = new EntityFieldQuery();
+  $query
+    ->entityCondition('entity_type', 'recruit_job', '=')
+    ->propertyCondition('job_ref', $job_ref, '=');
+
+  $result = $query->execute();
+  
+  return $result ? $result['recruit_job'] : FALSE;
+}
+
+/**
+ * The class used for job entities.
+ */
+class RecruitJob extends EntityDB {
+
+  public function __construct($values = array()) {
+    if (isset($values['user'])) {
+      $this->setUser($values['user']);
+      unset($values['user']);
+    }
+    parent::__construct($values, 'recruit_job');
+  }
+
+  /**
+   * Returns the user owning this job.
+   */
+  public function user() {
+    return user_load($this->uid);
+  }
+
+  /**
+   * Sets a new user owning this job.
+   */
+  public function setUser($account) {
+    $this->uid = $account->uid;
+  }
+
+
+  /**
+   * Gets the associated job type object.
+   *
+   * @return RecruitJobType
+   */
+  public function getType() {
+    return recruit_job_get_types($this->type);
+  }
+
+  /**
+   * Returns the URI for this job. May be altered via hook_entity_info().
+   */
+  public function uri() {
+    return entity_uri('recruit_job', $this);
+  }
+
+  /**
+   * Returns the full url() for the job.
+   */
+  public function url() {
+    $uri = $this->uri();
+    return url($uri['path'], $uri);
+  }
+
+  /**
+   * Returns the drupal path to this job.
+   */
+  public function path() {
+    $uri = $this->uri();
+    return $uri['path'];
+  }
+
+  public function save() {
+    //Always set changed time when saving a job.
+    $this->changed = REQUEST_TIME;
+    
+    //If this is a new job.
+    if (empty($this->jid)) {
+      $this->created = REQUEST_TIME;
+    }
+
+    parent::save();
+  }
+}
+
+/**
+ * Use a separate class for job types so we can specify some defaults
+ * modules may alter.
+ */
+class RecruitJobType extends EntityDB {
+
+  /**
+   * You must specify any custom fields here.
+   * Example:
+   * If you have a field in {entity_type} call help you must
+   * add public $help here.
+   */
+  public $type = '';
+  public $label = '';
+  public $description = '';
+  public $help = '';
+  public $weight = 0;
+
+  public function __construct($values = array()) {
+    parent::__construct($values, 'recruit_job_type');
+  }
+
+  /**
+   * Returns whether the job type is locked, thus may not be deleted or renamed.
+   *
+   * Job types provided in code are automatically treated as locked, as well
+   * as any fixed job type.
+   */
+  public function isLocked() {
+    return isset($this->status) && empty($this->is_new) && (($this->status & ENTITY_IN_CODE) || ($this->status & ENTITY_FIXED));
+  }
+}

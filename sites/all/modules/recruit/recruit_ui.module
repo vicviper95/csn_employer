@@ -1,0 +1,36 @@
+<?php
+
+/**
+ * @file
+ * Main UI module used across all other recruit UI modules.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function recruit_ui_menu() {
+  $items = array();
+
+  $items['admin/recruit'] = array(
+    'title' => 'Recruit',
+    'description' => 'Administer your jobs and applications.',
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('access recruit administration pages'),
+    'file path' => drupal_get_path('module', 'system'),
+    'file' => 'system.admin.inc',
+  );
+  /*
+  $items['admin/recruit/config'] = array(
+    'title' => 'Configuration',
+    'description' => 'Configure settings for your recruitment site.',
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+    'weight' => 10,
+    'file path' => drupal_get_path('module', 'system'),
+    'file' => 'system.admin.inc',
+  );
+   *
+   */
+  return $items;
+}

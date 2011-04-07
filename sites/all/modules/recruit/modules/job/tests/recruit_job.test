@@ -1,0 +1,121 @@
+<?php
+
+/**
+ * @file
+ * Unit/Functional tests for the job module.
+ */
+
+/**
+ * Test the job and job type CRUD.
+ */
+class RecruitJobCRUDTestCase extends DrupalWebTestCase {
+  public static function getInfo() {
+    return array(
+      'name' => 'Recruit job API CRUD',
+      'description' => 'Tests the job CRUD functions.',
+      'group' => 'Recruit',
+    );
+  }
+
+  function setUp() {
+    parent::setUp('recruit_job');
+  }
+
+  /**
+   * Ensure the default job types are created when installing recruit_job.module.
+  */
+  function testRecruitJobDefaultJobs() {
+    $default_types = array(
+      'job' => 'Job',
+    );
+
+    $types_created = recruit_job_get_types();
+    
+    //Not testing for default job type.
+    foreach ($default_types as $type => $name) {
+      $this->assertTrue(!empty($types_created[$type]), 'Job type ' . check_plain($type) . ' has been created.');
+    }
+  }
+
+  /**
+   * Test the job type CRUD functions.
+   */
+  function testRecruitJobTypeCrud() {
+    // Ensure recruit_job_type_new() returns a valid empty job type.
+    $new_job_type = recruit_job_type_new();
+    $this->assertNotNull($new_job_type->type, 'recruit_job_type_new() instantiated the type property.');
+    $this->assertNotNull($new_job_type->label, 'recruit_job_type_new() instantiated the name property.');
+    $this->assertNotNull($new_job_type->description, 'recruit_job_type_new() instantiated the description property.');
+    $this->assertNotNull($new_job_type->help, 'recruit_job_type_new() instantiated the help property');
+
+    // Supply customer values for the job type properties.
+    $type = $this->randomName(20);
+    $name = $this->randomName(40);
+    $description = $this->randomString(128);
+    $help = $this->randomString(128);
+
+    // Add the values to the new content type.
+    $new_job_type->type = $type;
+    $new_job_type->label = $name;
+    $new_job_type->description = $description;
+    $new_job_type->help = $help;
+    $new_job_type->is_new = TRUE;
+
+    // Ensure recruit_job_type_new() returns the proper value when inserting.
+    $return = recruit_job_type_save($new_job_type);
+    $this->assertEqual($return, SAVED_NEW, 'recruit_job_type_save() returned SAVED_NEW when saving a new job type.');
+
+    // Load the newly saved content type.
+    $saved_job_type = recruit_job_type_load($type);
+
+    // Ensure the values that were saved match the values that we created.
+    $this->assertTrue($saved_job_type, 'recruit_job_type_load() loaded the new job type.');
+    $this->assertEqual($type, $saved_job_type->type, 'The new job type type was properly saved and loaded.');
+    $this->assertEqual($name, $saved_job_type->label, 'The new job type label was properly saved and loaded.');
+    $this->assertEqual($description, $saved_job_type->description, 'The new job type description text was properly saved and loaded.');
+    $this->assertEqual($help, $saved_job_type->help, 'The new job type help text was properly saved and loaded.');
+
+    // Alter the title, to ensure the update function works.
+    $altered_name = $this->randomName(40);
+    $saved_job_type->label = $altered_name;
+    
+    // Ensure recruit_job_type_save() returns the proper value when updating.
+    $return = recruit_job_type_save($saved_job_type);
+    $this->assertEqual($return, SAVED_UPDATED, 'recruit_job_type_save() returned SAVED_UPDATED when saving an updated job type.');
+
+    // Reset the cached job types, and verify recruit_job_get_types load the saved type.
+    #recruit_job_types_reset();
+    $types = recruit_job_get_types();
+    $this->assertNotNull($types[$type], 'recruit_job_types_reset() successfully reset the job types.');
+    $this->assertEqual($saved_job_type->label, $altered_name, 'recruit_job_type_save() successfully updated the job type name.');
+
+    // Ensure recruit_job_type_delete() deletes a content type.
+    #recruit_job_type_delete($type);
+    #$deleted_type = recruit_job_type_load($type);
+    #$this->assertFalse($deleted_type, 'recruit_job_type_delete() successfully removed a job type.');
+  }
+
+
+  
+  /**
+   * Test job Token replacement.
+   */
+  /*
+  function testRecruitJobTokens() {
+    $job = recruit_job_new('job');
+    $job->job_ref = $this->randomName(10);
+    $job->title = $this->randomName(10);
+    $job->uid = 1;
+    $job = recruit_job_save($job);
+
+    $this->assertEqual(token_replace('[job:job-id]', array('job' => $job)), $job->job_id, '[job:job-id] was replaced with the job ID.');
+    $this->assertEqual(token_replace('[job:job-ref]', array('job' => $job)), $job->job_ref, '[job:job-ref] was replaced with the job reference.');
+    $this->assertEqual(token_replace('[job:type]', array('job' => $job)), recruit_job_type_get_name($job->type), '[job:type] was replaced with the job type.');
+    $this->assertEqual(token_replace('[job:title]', array('job' => $job)), $job->title, '[job:title] was replaced with the title.');
+    $this->assertNotIdentical(strpos(token_replace('[job:edit-url]', array('job' => $job)), url('admin/recruit/jobs/' . $job->job_id . '/edit')), FALSE, '[job:edit-url] was replaced with the edit URL.');
+    $this->assertEqual(token_replace('[job:created]', array('job' => $job)), format_date($job->created, 'medium'), '[job:created] was replaced with the created date.');
+  }
+   * 
+   */
+ 
+}

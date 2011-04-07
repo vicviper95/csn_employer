@@ -1,0 +1,27 @@
+<?php
+
+/**
+ * @file
+ * Install file for recruit_application_reference.module.
+ */
+
+/**
+ * Implements hook_field_schema().
+ */
+function recruit_application_reference_field_schema($field) {
+  if ($field['type'] == 'recruit_application_reference') {
+    return array(
+      'columns' => array(
+        'application_type' => array(
+          'type' => 'varchar',
+          'length' => 32,
+          'not null' => TRUE,
+          'default' => '',
+        ),
+      ),
+      'indexes' => array(
+        'application_type' => array('application_type'),
+      ),
+    );
+  }
+}

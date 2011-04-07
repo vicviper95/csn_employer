@@ -1,0 +1,221 @@
+<?php
+
+/**
+ * @file
+ * Custom field used to display applications in any entities.
+ */
+
+/**
+ * Implementation of hook_field_info().
+ */
+function recruit_application_reference_field_info() {
+  return array(
+    'recruit_application_reference' => array(
+      'label' => t('Application reference'),
+      'description' => t('Attach applications to any content types'),
+      'default_widget' => 'recruit_application_reference_select_list',
+      'default_formatter' => 'recruit_application_reference_link',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function recruit_application_reference_field_widget_info() {
+  return array(
+    'recruit_application_reference_select_list' => array(
+      'label' => t('Select list'),
+      'field types' => array('recruit_application_reference'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function recruit_application_reference_field_formatter_info() {
+  return array(
+    //'recruit_application_reference_application_form' => array(
+    //  'label' => t('Application form'),
+    //  'description' => t('Display the application form.'),
+    // 'field types' => array('recruit_application_reference'),
+    //),
+    'recruit_application_reference_link' => array(
+      'label' => t('Link'),
+      'description' => t('Links to an application form on a separate form.'),
+      'field types' => array('recruit_application_reference'),
+      'settings' =>  array(
+        'link_label' => 'Apply',
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+function recruit_application_reference_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+  $form = array();
+
+  if ($display['type'] == 'recruit_application_reference_link') {
+    $form['link_label'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Link label'),
+      '#default_value' => $settings['link_label'],
+      '#required' => TRUE,
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+function recruit_application_reference_field_formatter_settings_summary($field, $instance, $view_mode) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+  $summary = '';
+
+  if ($display['type'] == 'recruit_application_reference_link') {
+    $summary = t('Link label:') . ' ' . $settings['link_label'];
+  }
+
+  return $summary;
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function recruit_application_reference_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $result = array();
+  switch ($display['type']) {
+    case 'recruit_application_reference_application_form':
+      foreach ($items as $delta => $item) {
+        $result[$delta] = array(
+          '#markup' => render(drupal_get_form('recruit_application_reference_application_form', recruit_application_new($item['application_type']))),
+        );
+
+      }
+      break;
+    case 'recruit_application_reference_link':
+      foreach ($items as $delta => $item) {
+
+        //Get entity uri.
+        $entity_ids = entity_extract_ids($entity_type, $entity);
+        $url_query = array('et' => $entity_type, 'id' => $entity_ids[0]);
+        //Get link label setting.
+        $link_label = $display['settings']['link_label'];
+        $result[$delta] = array(
+          '#markup' => l(check_plain($link_label), 'recruit-application/' . strtr($item['application_type'], array('_' => '-')) . '/apply', array('query' => $url_query)),
+        );
+      }
+      break;
+
+  }
+  return $result;
+}
+
+/**
+ * Implementation of hook_field_is_empty().
+ */
+function recruit_application_reference_field_is_empty($item, $field) {
+
+  if ($field['type'] == 'recruit_application_reference') {
+
+    if (empty($item['application_type'])) {
+     return TRUE;
+    }
+
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_field_settings_form().
+ */
+function recruit_application_reference_field_settings_form($field, $instance, $has_data) {
+  if ($field['type'] == 'recruit_application_reference') {
+
+  }
+}
+
+/**
+ * Implementation of hook_field_validate().
+ */
+function recruit_application_reference_field_validate($obj_type, $object, $field, $instance, $langcode, &$items, &$errors) {
+  if ($field['type'] == 'recruit_application_reference') {
+
+  }
+}
+
+/**
+ * Implements hook_field_widget_settings_form().
+ */
+function recruit_application_reference_field_widget_settings_form($field, $instance) {
+  $widget = $instance['widget'];
+  $defaults = field_info_widget_settings($widget['type']);
+  $settings = array_merge($defaults, $widget['settings']);
+
+  $form = array();
+
+  if ($widget['type'] == 'recruit_application_reference_select_list') {
+
+  }
+
+  return $form;
+}
+
+/**
+ * Implementation of hook_field_widget_form().
+ */
+function recruit_application_reference_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $base = $element;
+  if ($instance['widget']['type'] == 'recruit_application_reference_select_list') {
+    $widget = $instance['widget'];
+    $settings = $widget['settings'];
+
+    // Build an options array of the application types.
+    foreach (recruit_application_get_types() as $type => $name) {
+      $options[$type] = check_plain($name->label);
+    }
+    
+    $element['application_type'] = array(
+      '#type' => 'select',
+      '#title' => t('Which application form should be used?'),
+      '#options' => $options,
+      '#default_value' => isset($items[$delta]['application_type']) ? $items[$delta]['application_type'] : NULL,
+    );
+  }
+
+  return $element;
+}
+
+/**
+ * Implements hook_recruit_application_presave().
+ */
+function recruit_application_reference_recruit_application_presave($application) {
+  
+  //If this is a new application...
+  if (empty($application->aid) && arg(0) == 'recruit-job') {
+    $application->status = 1;
+  }
+}
+
+/**
+ * Implements hook_forms().
+ */
+#function recruit_application_reference_forms($form_id, $args) {
+  #$forms = array();
+
+  // Define a wrapper ID for the frontend application add / edit form.
+  #$forms['recruit_application_reference_application_form'] = array(
+  #  'callback' => 'recruit_application_application_form',
+  #);
+
+  #return $forms;
+#}

@@ -1,0 +1,312 @@
+<?php
+
+/**
+ * @file
+ * Custom field used to publish and unpublish jobs.
+ */
+
+/**
+ * Define default days till items is unpublished.
+ */
+define('RECRUIT_SCHEDULE_DEFAULT_DAYS', 30);
+
+/**
+ * Implementation of hook_field_info().
+ */
+function recruit_schedule_field_info() {
+  return array(
+    'recruit_schedule' => array(
+      'label' => t('Recruit schedule'),
+      'description' => t('Schedule items to be published or unpublished'),
+      'default_widget' => 'recruit_schedule_select_list',
+      'default_formatter' => 'recruit_schedule_default',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function recruit_schedule_field_widget_info() {
+  return array(
+    'recruit_schedule_select_list' => array(
+      'label' => t('Select list'),
+      'field types' => array('recruit_schedule'),
+      'behaviors' => array(
+        'default value' => FIELD_BEHAVIOR_NONE,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function recruit_schedule_field_formatter_info() {
+  return array(
+    // This formatter just displays the hex value in the color indicated.
+    'recruit_schedule_default' => array(
+      'label' => t('Default'),
+      'field types' => array('recruit_schedule'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function recruit_schedule_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+
+  switch ($display['type']) {
+    case 'recruit_schedule_default':
+      foreach ($items as $delta => $item) {
+        $element[$delta]['#markup'] = format_date($item['unpublish'], 'custom', 'm/d/Y');
+      }
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Implementation of hook_field_is_empty().
+ */
+function recruit_schedule_field_is_empty($item, $field) {
+  
+  if ($field['type'] == 'recruit_schedule') {
+
+    if (empty($item['unpublish'])) {
+     return TRUE;
+    }
+
+  }
+  
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_field_settings_form().
+ */
+function recruit_schedule_field_settings_form($field, $instance, $has_data) {
+  if ($field['type'] == 'recruit_schedule') {
+    $settings = $field['settings'];
+    $form = array();
+    return $form;
+  }
+}
+
+/**
+ * Implementation of hook_field_validate().
+ */
+function recruit_schedule_field_validate($obj_type, $object, $field, $instance, $langcode, &$items, &$errors) {
+  if ($field['type'] == 'recruit_schedule') {
+    
+  }
+}
+
+
+/**
+ * Implementation of hook_field_widget_form().
+ */
+function recruit_schedule_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $base = $element;
+  if ($instance['widget']['type'] == 'recruit_schedule_select_list') {
+    $widget = $instance['widget'];
+    $settings = $widget['settings'];
+    $default_value = '';
+
+    if (empty($items)) {
+      $default_value = _recruit_schedule_get_default_date($settings['default_days']);
+    }
+    else {
+      if (is_numeric($items[$delta]['unpublish'])) {
+        $default_value = _recruit_schedule_timestamp_to_array($items[$delta]['unpublish']);
+      }
+    }
+    
+    $element['unpublish'] = array(
+      '#title' => check_plain($instance['label']),
+      '#type' => 'date',
+      '#default_value' => $default_value ? $default_value : '',
+    );
+    
+    #$element['#element_validate'] = array( '_recruit_schedule_select_list_validate');
+  }
+
+  return $element;
+}
+
+/**
+ * Implementation of hook_field_widget_settings_form().
+ */
+function recruit_schedule_field_widget_settings_form($field, $instance) {
+  $form = array();
+  $widget = $instance['widget'];
+  $settings = $widget['settings'];
+
+  if ($widget['type'] == 'recruit_schedule_select_list') {
+    $form['default_days'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Default days till unpublished'),
+      '#size' => 5,
+      '#description' => t('Only enter in integra value for days. Example ' . RECRUIT_SCHEDULE_DEFAULT_DAYS),
+      '#default_value' => empty($settings['default_days']) ? RECRUIT_SCHEDULE_DEFAULT_DAYS : $settings['default_days'],
+      '#element_validate' => array('_element_validate_integer_positive'),
+    );
+  }
+  
+  return $form;
+}
+
+/**
+ * Implementation of hook_field_presave().
+ */
+function recruit_schedule_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  if ($field['type'] == 'recruit_schedule') {
+    foreach ($items as $delta => $item) {
+      if (isset($item['unpublish'])) {
+        $items[$delta]['unpublish'] = _recruit_schedule_array_to_timestamp($items[$delta]['unpublish']);
+      }
+    }
+  }
+}
+
+
+/**
+ * Implements hook_cron().
+ */
+function recruit_schedule_cron() {
+  //recruit_schedule_unpublish();
+}
+
+
+
+/**
+ * Expires old jobs, this function is usually called from recruit_job_cron.
+ */
+function recruit_schedule_unpublish() {
+  // Loop through all recruit_schedule fields.
+  foreach (recruit_info_fields('recruit_schedule') as $field_name => $field) {
+    $query = new EntityFieldQuery();
+    $result = $query
+      ->entityCondition('entity_type', 'recruit_job')
+      ->propertyCondition('status', 1)
+      ->fieldCondition($field_name, 'unpublish', REQUEST_TIME, '<')
+      ->execute();
+    
+    if (!empty($result['recruit_job'])) {
+      $jobs = entity_load('recruit_job', array_keys($result['recruit_job']));
+      foreach ($jobs as $job) {
+        //Set status to 0;
+        #$job->status = 0;
+        #recruit_job_save($job);
+        
+        //TODO, fix this later.
+        $job_update = db_update('recruit_job')
+          ->fields(array(
+            'status' => 0,
+          ))
+          ->condition('job_id', $job->job_id, '=')
+          ->execute();
+      }
+    }
+    
+  }
+}
+
+
+/**
+ * Expires old jobs, this function is usually called from recruit_job_cron.
+
+function recruit_schedule_unpublish() {
+
+  //Get jobs where expiry date is < now.
+  #$result = db_query("SELECT job_id FROM {recruit_job} WHERE expiry < :request_time", array(':request_time' => REQUEST_TIME));
+    
+    $job = recruit_job_load(7);
+    dsm($job);
+
+  foreach ($result as $job_id) {
+    $job = recruit_job_load($job_id->job_id);
+    dsm($job);
+    //disable job.
+    $job->status = 0;
+
+    //Set watchdog log.
+    watchdog('recruit_schedule_job', 'Job Ref: !job_ref has expired', array('!job_ref' => $job->job_ref));
+
+    //Save job.
+    #recruit_job_save($job);
+
+    #module_invoke_all('recruit_job_expiry', $job);
+  }
+}
+ */
+
+/**
+ * Converts unix timestamp to an array used on the expiry field.
+ * Timestamp 1323583200 to
+ * array('year' => $year, 'month' => $month, 'day' => $day);
+ *
+ * @param $timestamp
+ *   Unix timestamp.
+ */
+function _recruit_schedule_timestamp_to_array($timestamp) {
+  if ($timestamp) {
+    $day = date('j', $timestamp);
+    $month = date('n', $timestamp);
+    $year = date('Y', $timestamp);
+
+    return array('year' => $year, 'month' => $month, 'day' => $day);
+  }
+}
+
+/**
+ * Converts date field array used on the expiry field
+ * to a timestamp.
+ * Timestamp 1323583200 to
+ * array('year' => $year, 'month' => $month, 'day' => $day);
+ *
+ * @param $timestamp
+ *   Unix timestamp.
+ */
+function _recruit_schedule_array_to_timestamp($array) {
+  if (is_array($array)) {
+
+    $day = $array['day'];
+    $month = $array['month'];
+    $year = $array['year'];
+
+    $expiry_date = mktime(0, 0, 0, $month, $day, $year);
+    return $expiry_date;
+  }
+}
+
+function _recruit_schedule_get_default_date($days = RECRUIT_SCHEDULE_DEFAULT_DAYS) {
+  if ($days) {
+    //Convert days to seconds.
+    $days_seconds = $days * 86400;
+
+    //Now + expiry = expiry date.
+    $unpublish_date = REQUEST_TIME + $days_seconds;
+
+    return _recruit_schedule_timestamp_to_array($unpublish_date);
+  }
+}
+
+function _recruit_schedule_select_list_validate($element, &$form_state) {
+
+  $values = $form_state['values'];
+  $field_name = $element['#field_name'];
+  $date = $values[$field_name]['und'][0]['unpublish'];
+  if (is_array($date)) {
+    $converted_expiry = _recruit_schedule_array_to_timestamp($date);
+
+    if ($converted_expiry < REQUEST_TIME) {
+      form_error($element, t('Please select expiry date in the future.'));
+    }
+
+  }
+  
+}

@@ -1,0 +1,16 @@
+name = Recruit
+description = Enables e-recruitment on site.
+package = Recruit Core
+core = 7.x
+
+; Base module files
+files[] = recruit.module
+files[] = recruit.install
+
+
+; Information added by drupal.org packaging script on 2011-03-30
+version = "7.x-1.0-alpha1"
+core = "7.x"
+project = "recruit"
+datestamp = "1301480769"
+

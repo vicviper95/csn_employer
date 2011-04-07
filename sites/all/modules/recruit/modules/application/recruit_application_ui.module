@@ -1,0 +1,344 @@
+<?php
+
+/**
+ * @file
+ * General UI module for recruit_application.module.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function recruit_application_ui_menu() {
+  $items = array();
+  
+  //Add better access control.
+  //Write code which only allows the selected content type.
+  $items['recruit-application/%recruit_application_type/apply'] = array(
+    'page callback' => 'recruit_application_ui_apply_page',
+    'page arguments' => array(1),
+    'access callback' => 'recruit_application_apply_access',
+    'access arguments' => array('create', 1),
+    'type' => MENU_CALLBACK,
+    'file' => 'includes/recruit_application_ui.pages.inc',
+  );
+
+  $items['admin/recruit/applications/add'] = array(
+    'title' => 'Create application',
+    'description' => 'Advertise application listing.',
+    'page callback' => 'recruit_application_ui_add_page',
+    'access callback' => 'recruit_application_ui_application_add_any_access',
+    'weight' => 10,
+    'file' => 'includes/recruit_application_ui.applications.inc',
+  );
+
+  foreach (recruit_application_get_types() as $type => $application_type) {
+    $items['admin/recruit/applications/add/' . strtr($type, array('_' => '-'))] = array(
+      'title' => 'Create @name',
+      'title arguments' => array('@name' => $application_type->label),
+      'description' => $application_type->description,
+      'page callback' => 'recruit_application_ui_application_form_wrapper',
+      'page arguments' => array(recruit_application_new($type)),
+      'access callback' => 'recruit_application_access',
+      'access arguments' => array('create', $type),
+      'file' => 'includes/recruit_application_ui.applications.inc',
+    );
+  }
+
+  $items['admin/recruit/applications/%recruit_application'] = array(
+    'title callback' => 'recruit_application_ui_application_title',
+    'title arguments' => array(3),
+    'page callback' => 'recruit_application_ui_admin_view_page',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_application_access',
+    'access arguments' => array('view', 3),
+    'file' => 'includes/recruit_application_ui.pages.inc',
+  );
+
+  $items['admin/recruit/applications/%recruit_application/view'] = array(
+    'title' => 'View',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+    'access callback' => 'recruit_application_access',
+    'access arguments' => array('view', 3),
+  );
+  
+  $items['admin/recruit/applications/%recruit_application/edit'] = array(
+    'title' => 'Edit',
+    'page callback' => 'recruit_application_ui_application_form_wrapper',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_application_access',
+    'access arguments' => array('update', 3),
+    'weight' => 0,
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'file' => 'includes/recruit_application_ui.applications.inc',
+  );
+
+  $items['admin/recruit/applications/%recruit_application/delete'] = array(
+    'title' => 'Delete a application',
+    'page callback' => 'recruit_application_ui_application_delete_form_wrapper',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_application_access',
+    'access arguments' => array('update', 3),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'context' => MENU_CONTEXT_INLINE,
+    'file' => 'includes/recruit_application_ui.applications.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Access callback: determine if the user can create any type of application.
+ */
+function recruit_application_ui_application_add_any_access() {
+  // Grant automatic access to users with administer applications permission.
+  if (user_access('administer applications')) {
+    return TRUE;
+  }
+
+  // Check the user's access on a application type basis.
+  foreach (recruit_application_get_types() as $type => $application_type) {
+    if (recruit_application_access('create', $type)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function recruit_application_ui_theme() {
+  return array(
+    'application_add_list' => array(
+      'variables' => array('content' => array()),
+      'file' => 'includes/recruit_application_ui.applications.inc',
+    ),
+    'recruit_application' => array(
+      'variables' => array('application' => array(), 'view_mode' => NULL),
+      'path' => drupal_get_path('module', 'recruit_application_ui') . '/theme',
+      'template' => 'recruit-application',
+    ),
+    'recruit_application_form' => array(
+      'variables' => array('content' => array(), 'type' => array()),
+      'path' => drupal_get_path('module', 'recruit_application_ui') . '/theme',
+      'template' => 'recruit-application-form',
+    ),
+  );
+}
+
+/**
+ * Sets the breadcrumb for administrative application pages.
+ *
+ * @param $application_types
+ */
+function recruit_application_ui_set_breadcrumb($application_types = FALSE) {
+  $breadcrumb = array(
+    l(t('Home'), '<front>'),
+    l(t('Administration'), 'admin'),
+    l(t('Recruit'), 'admin/recruit'),
+    l(t('Applications'), 'admin/recruit/applications'),
+  );
+
+  if ($application_types) {
+    $breadcrumb[] = l(t('Application types'), 'admin/Recruit/applications/types');
+  }
+
+  drupal_set_breadcrumb($breadcrumb);
+}
+
+/**
+ * Implements hook_forms().
+ */
+function recruit_application_ui_forms($form_id, $args) {
+  $forms = array();
+
+  // Define a wrapper ID for the application add / edit form.
+  $forms['recruit_application_ui_application_form'] = array(
+    'callback' => 'recruit_application_application_form',
+  );
+  
+  // Define a wrapper ID for the application public application form.
+  $forms['recruit_application_ui_application_apply_form'] = array(
+    'callback' => 'recruit_application_application_form',
+  );
+
+  // Define a wrapper ID for the application delete confirmation form.
+  $forms['recruit_application_ui_application_delete_form'] = array(
+    'callback' => 'recruit_application_application_delete_form',
+  );
+
+  return $forms;
+}
+
+/**
+ * Custom menu item callback for titles.
+ *
+ * @param $application
+ *   The application object as loaded via the URL wildcard.
+ * @return
+ *   A page title of the format "Applicant: @first_name @last_name".
+ */
+function recruit_application_ui_application_title($application) {
+  return t('Applicant: @first_name @last_name', array('@first_name' => $application->first_name, '@last_name' => $application->last_name));
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * @see recruit_application_ui_application_delete_form()
+ */
+function recruit_application_ui_form_recruit_application_ui_application_delete_form_alter(&$form, &$form_state) {
+  $form['actions']['cancel']['#markup'] = l(t('Cancel'), 'admin/recruit/applications');
+
+  $form['#submit'][] = 'recruit_application_ui_application_delete_form_submit';
+}
+
+/**
+ * Submit callback for recruit_application_ui_application_delete_form().
+ *
+ * @see recruit_application_ui_form_recruit_application_ui_application_delete_form_alter()
+ */
+function recruit_application_ui_application_delete_form_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/recruit/applications';
+}
+
+/**
+ * Implements hook_menu_local_tasks_alter().
+ */
+function recruit_application_ui_menu_local_tasks_alter(&$data, $router_item, $root_path) {
+  if ($root_path == 'admin/recruit/applications') {
+    $item = menu_get_item('admin/recruit/applications/add');
+    if ($item['access']) {
+      $data['actions']['output'][] = array(
+        '#theme' => 'menu_local_action',
+        '#link' => $item,
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * @see recruit_application_ui_application_form()
+ */
+function recruit_application_ui_form_recruit_application_ui_application_form_alter(&$form, &$form_state) {
+  // Add a submit handler to the save button to add a redirect.
+  $form['actions']['submit']['#submit'][] = 'recruit_application_ui_application_form_submit';
+
+  // Add the save and continue button for new applications.
+  if (empty($form_state['recruit_application']->aid)) {
+    $form['actions']['save_continue'] = array(
+      '#type' => 'submit',
+      '#value' => t('Save and add another'),
+      '#submit' => $form['actions']['submit']['#submit'],
+      '#suffix' => l('Cancel', 'admin/recruit/applications'),
+      '#weight' => 45,
+    );
+  }
+  else {
+    $form['actions']['submit']['#suffix'] = l('Cancel', 'admin/recruit/applications');
+  }
+}
+
+/**
+ * Submit callback for recruit_application_ui_application_form().
+ *
+ * @see recruit_application_ui_form_recruit_application_ui_application_form_alter()
+ */
+function recruit_application_ui_application_form_submit($form, &$form_state) {
+
+  drupal_set_message(t('Application saved.'));
+  
+  // Set the redirect based on the button clicked.
+  if ($form_state['clicked_button']['#parents'][0] == 'save_continue') {
+    $form_state['redirect'] = 'admin/recruit/applications/add/' . strtr($form_state['recruit_application']->type, array('_' => '-'));
+  }
+  elseif (arg(2) == 'applications' && arg(3) == 'add') {
+    $form_state['redirect'] = 'admin/recruit/applications';
+  }
+
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function recruit_application_ui_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'recruit_application') . '/includes/views',
+  );
+}
+
+function recruit_application_ui_preprocess_recruit_application(&$variables) {
+
+  if (!empty($variables['application'])) {
+    $application = $variables['application'];
+    $variables['content'] = $variables['application']->buildContent('admin');
+  }
+  //Add css classes.
+  $variables['classes_array'][] = drupal_html_class('recruit-application-' . $application->type);
+  $variables['classes_array'][] = drupal_html_class('recruit-application-' . $application->aid);
+  $variables['classes_array'][] = drupal_html_class('recruit-application-' . $variables['view_mode']);
+  
+  $variables['theme_hook_suggestions'][] = 'recruit_application__' . $application->type;
+  $variables['theme_hook_suggestions'][] = 'recruit_application__' . $application->aid;
+  $variables['theme_hook_suggestions'][] = 'recruit_application__' . $variables['view_mode'];
+  
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * @see recruit_application_ui_application_form()
+ */
+function recruit_application_ui_form_recruit_application_ui_application_apply_form_alter(&$form, &$form_state) {
+  //Get entity object.
+  $entity = $form_state['entity'];
+
+  $form['actions']['submit']['#value'] = t('Apply Now');
+
+  //Cleanup form and unset a few fields.
+  unset($form['status']);
+  unset($form['actions']['save_continue']);
+
+  //Make sure and only unset the application ref if it's assigned to the entity type.
+  foreach (recruit_info_fields('recruit_application_attach') as $field_name => $field) {
+    $attach_field = field_info_instance($form['#entity_type'], $field_name, $form['#bundle']);
+    if (($form['#entity_type'] == $attach_field['entity_type']) && ($form['#bundle'] == $attach_field['bundle'])) {
+      unset($form[$field_name]);
+    }
+  }
+
+  //Set status to 1.
+  $form_state['values']['status'] = 1;
+
+  //Get entity uri.
+  $uri = entity_uri($entity->entity_type, $entity);
+
+  //Set the "back to job" link.
+  $form['actions']['cancel']['#markup'] = l(t('Back to job'), $uri['path']);
+
+  //Add submit handler.
+  $form['actions']['submit']['#submit'][] = 'recruit_application_ui_application_apply_form_submit';
+}
+
+/**
+ * Submit callback for recruit_application_ui_application_apply_form().
+ *
+ * @see recruit_application_ui_form_recruit_application_ui_application_apply_form_alter()
+ */
+function recruit_application_ui_application_apply_form_submit($form, &$form_state) {
+  //Get entity object.
+  $entity = $form_state['entity'];
+  //Get entity uri.
+  $uri = entity_uri($entity->entity_type, $entity);
+  
+  $form_state['redirect'] = $uri['path'];
+  // Set message.
+  drupal_set_message(t('Your application has been submitted.'));
+}

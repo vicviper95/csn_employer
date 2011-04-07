@@ -1,0 +1,846 @@
+<?php
+
+/**
+ * @file
+ * Defines Recruit application entity.
+ */
+
+/**
+ * Implements hook_entity_info().
+ */
+function recruit_application_entity_info() {
+  $return = array(
+    'recruit_application' => array(
+      'label' => t('Application'),
+      'entity class' => 'RecruitApplication',
+      'controller class' => 'EntityAPIController',
+      'base table' => 'recruit_application',
+      'fieldable' => TRUE,
+      'view modes' => array(
+        'admin' => array(
+          'label' => t('Administration display'),
+          'custom settings' => FALSE,
+        ),
+        'teaser' => array(
+          'label' => t('Teaser'),
+          'custom settings' => TRUE,
+        ),
+        'full' => array(
+          'label' => t('Full content'),
+          'custom settings' => FALSE,
+        ),
+        ' rss' => array(
+          'label' => t('RSS'),
+          'custom settings' => FALSE,
+        ),
+      ),
+      'entity keys' => array(
+        'id' => 'aid',
+        'bundle' => 'type',
+        'label' => 'first_name',
+      ),
+      'bundles' => array(),
+      'bundle keys' => array(
+        'bundle' => 'type',
+      ),
+      'uri callback' => 'recruit_application_uri_callback',
+      'access callback' => 'recruit_application_access',
+      'module' => 'recruit_application',
+      'metadata controller class' => 'RecruitApplicationMetadataController',
+    ),
+  );
+  $return['recruit_application_type'] = array(
+    'label' => t('Application type'),
+    'entity class' => 'RecruitApplicationType',
+    'controller class' => 'EntityAPIController',
+    'base table' => 'recruit_application_type',
+    'fieldable' => FALSE,
+    'bundle of' => 'recruit_application',
+    'exportable' => TRUE,
+    'entity keys' => array(
+      'id' => 'id',
+      'name' => 'type',
+      'label' => 'label',
+    ),
+    'access callback' => 'recruit_application_type_access',
+    'module' => 'recruit_application',
+    // Enable the entity API's admin UI.
+    'admin ui' => array(
+      'path' => 'admin/recruit/applications/types',
+      'file' => 'includes/recruit_application.admin.inc',
+      'controller class' => 'RecruitApplicationTypeUIController',
+    ),
+  );
+  return $return;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Use this hook to specify application bundles to avoid a recursion, as loading
+ * the application types needs the entity info too.
+ */
+function recruit_application_entity_info_alter(&$entity_info) {
+  foreach (recruit_application_get_types() as $type => $info) {
+    $entity_info['recruit_application']['bundles'][$type] = array(
+      'label' => $info->label,
+      'admin' => array(
+        'path' => 'admin/recruit/applications/types/manage/%recruit_application_type',
+        'real path' => 'admin/recruit/applications/types/manage/' . $type,
+        'bundle argument' => 5,//IMPORTANT: Double check this value when you change 'path' or 'real path'
+        'access arguments' => array('administer applications'),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function recruit_application_field_extra_fields() {
+  $extra = array();
+
+  foreach (recruit_application_get_types() as $type => $application_type) {
+    $extra['recruit_application'][$type] = array(
+      'form' => array(
+        'first_name' => array(
+          'label' => 'First name',
+          'description' => t('Application module first name form element'),
+          'weight' => -5,
+        ),
+        'last_name' => array(
+          'label' => 'Last name',
+          'description' => t('Application module last name form element'),
+          'weight' => -5,
+        ),
+        'status' => array(
+          'label' => 'Status',
+          'description' => t('application module status form element'),
+          'weight' => 35,
+        ),
+      ),
+      'display' => array(
+        'first_name' => array(
+          'label' => 'First name',
+          'description' => t('First name'),
+          'weight' => -5,
+        ),
+        'last_name' => array(
+          'label' => 'Last name',
+          'description' => t('Last name'),
+          'weight' => -5,
+        ),
+      ),
+    );
+  }
+
+  return $extra;
+}
+
+/**
+ * Implementation of hook_field_info().
+ */
+function recruit_application_field_info() {
+  return array(
+    'recruit_application_attach' => array(
+      'label' => t('Application attach'),
+      'description' => t('Attaches entities to the application'),
+      'default_widget' => 'recruit_application_attach_form',
+      'default_formatter' => 'recruit_application_attach_link',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function recruit_application_field_widget_info() {
+  return array(
+    'recruit_application_attach_form' => array(
+      'label' => t('Form'),
+      'field types' => array('recruit_application_attach'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function recruit_application_field_formatter_info() {
+  return array(
+    'recruit_application_attach_link' => array(
+      'label' => t('Link'),
+      'description' => t('Links to the attached entity'),
+      'field types' => array('recruit_application_attach'),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_field_is_empty().
+ */
+function recruit_application_field_is_empty($item, $field) {
+
+  if ($field['type'] == 'recruit_application_attach') {
+
+    if (empty($item['entity_type']) && empty($item['bundle']) && empty($item['entity_id'])) {
+     return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_field_widget_form().
+ */
+function recruit_application_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $base = $element;
+  if ($instance['widget']['type'] == 'recruit_application_attach_form') {
+    $widget = $instance['widget'];
+    $settings = $widget['settings'];
+
+    $element['entity_type'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Entity type'),
+      '#default_value' => isset($items[$delta]['entity_type']) ? $items[$delta]['entity_type'] : NULL,
+    );
+
+    $element['bundle'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Bundle'),
+      '#default_value' => isset($items[$delta]['bundle']) ? $items[$delta]['bundle'] : NULL,
+    );
+
+    $element['entity_id'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Entity id'),
+      '#default_value' => isset($items[$delta]['entity_id']) ? $items[$delta]['entity_id'] : NULL,
+    );
+  }
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function recruit_application_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $result = array();
+  switch ($display['type']) {
+    case 'recruit_application_attach_link':
+      foreach ($items as $delta => $item) {
+
+        $attached_entity_type = entity_get_info($item['entity_type']);
+
+        if (!empty($attached_entity_type)) {
+          $attached_entity = recruit_entity_load_single($item['entity_type'], $item['entity_id']);
+          //Check if entity exists.
+          if (!empty($attached_entity)) {
+            //Get title.
+            $attached_title = $attached_entity_type['entity keys']['label'];
+            $title = $attached_entity->$attached_title;
+            //Get uri
+            $uri = entity_uri($item['entity_type'], $attached_entity);
+
+            if (!empty($uri)) {
+              $result[$delta] = array(
+                '#markup' => l(!empty($title) ? $title : 'Job', $uri['path']),
+              );
+            }
+          }
+
+
+        }
+      }
+      break;
+
+  }
+  return $result;
+}
+
+/**
+ * Implementation of hook_field_attach_submit().
+ *
+ * Programmatically assign an application to an entity.
+ */
+function recruit_application_field_attach_submit($entity_type, $entity, $form, &$form_state) {
+
+  if (!empty($form['#form_id'])) {
+
+    if ($form['#form_id'] == 'recruit_application_ui_application_apply_form' && is_object($form_state['entity'])) {
+
+      $attached_entity = $form_state['entity'];
+      //Get entity info.
+      $attached_entity_keys = entity_get_info($attached_entity->entity_type);
+
+      //Get bundle key.
+      $attached_bundle = $attached_entity_keys['entity keys']['bundle'];
+
+      $entity_type = $attached_entity->entity_type;
+      $bundle = $attached_entity->$attached_bundle;
+      $entity_id = $attached_entity->entity_id;
+
+      //Get language from attached entity.
+      if (empty($attached_entity->language)) {
+        $attached_lang = LANGUAGE_NONE;
+      }
+      else {
+        $attached_lang = $attached_entity->language;
+      }
+
+      $entity->field_application_ref[$attached_lang][0]['entity_type'] = $entity_type;
+      $entity->field_application_ref[$attached_lang][0]['bundle'] = $bundle;
+      $entity->field_application_ref[$attached_lang][0]['entity_id'] = $entity_id;
+    }
+    
+  }
+
+}
+
+/**
+ * Menu argument loader; Load a application type by string.
+ *
+ * @param $type
+ *   The machine-readable name of a application type to load.
+ * @return
+ *   A application type array or FALSE if $type does not exist.
+ */
+function recruit_application_type_load($type) {
+  $type = strtr($type, array('-' => '_'));
+  return recruit_application_get_types($type);
+}
+
+/**
+ * Implements hook_permission().
+ */
+function recruit_application_permission() {
+  $permissions = array(
+    'administer application types' =>  array(
+      'title' => t('Administer application types'),
+      'description' => t('Create and delete fields on applications, and set their permissions.'),
+    ),
+    'administer applications' =>  array(
+      'title' => t('Administer applications'),
+      'description' => t('Edit and view all applications.'),
+    ),
+    'access applications' => array(
+      'title' => t('Access applications'),
+      'description' => t('Allows users to view lists of applications in the administration section.'),
+    ),
+  );
+  // Generate per application type permissions.
+  foreach (recruit_application_get_types() as $type) {
+    $type_name = check_plain($type->type);
+    $permissions += array(
+      "create public $type_name applications" => array(
+        'title' => t('%type_name: create public applications', array('%type_name' => $type->label)),
+        'description' => t('Allows public users to submit applications, this permission is required to allow incoming applications.'),
+      ),
+      "create $type_name applications" => array(
+        'title' => t('%type_name: create applications', array('%type_name' => $type->label)),
+      ),
+      "edit own $type_name application" => array(
+        'title' => t('%type_name: Edit own application', array('%type_name' => $type->label)),
+      ),
+      "edit any $type_name application" => array(
+        'title' => t('%type_name: Edit any application', array('%type_name' => $type->label)),
+      ),
+    );
+  }
+  return $permissions;
+}
+
+/**
+ * Gets an array of all application types, keyed by the type name.
+ *
+ * @param $type_name
+ *   If set, the type with the given name is returned.
+ * @return RecruitApplicationType[]
+ *   Depending whether $type isset, an array of application types or a single one.
+ */
+function recruit_application_get_types($type_name = NULL) {
+  $types = entity_load('recruit_application_type', isset($type_name) ? array($type_name) : FALSE);
+  return isset($type_name) ? reset($types) : $types;
+}
+
+/**
+ * Fetch a application object.
+ *
+ * @param $aid
+ *   Integer specifying the application id.
+ * @param $reset
+ *   A boolean indicating that the internal cache should be reset.
+ * @return
+ *   A fully-loaded $application object or FALSE if it cannot be loaded.
+ *
+ * @see recruit_application_load_multiple()
+ */
+function recruit_application_load($aid, $reset = FALSE) {
+  $applications = recruit_application_load_multiple(array($aid), array(), $reset);
+  return reset($applications);
+}
+
+/**
+ * Load multiple applications based on certain conditions.
+ *
+ * @param $aids
+ *   An array of application IDs.
+ * @param $conditions
+ *   An array of conditions to match against the {recruit_application} table.
+ * @param $reset
+ *   A boolean indicating that the internal cache should be reset.
+ * @return
+ *   An array of application objects, indexed by pid.
+ *
+ * @see entity_load()
+ * @see recruit_application_load()
+ */
+function recruit_application_load_multiple($aids = array(), $conditions = array(), $reset = FALSE) {
+  return entity_load('recruit_application', $aids, $conditions, $reset);
+}
+
+/**
+ * Default uri callback.
+ *
+ * @see RecruitApplication::uri()
+ */
+function recruit_application_uri_callback($application) {
+  return array(
+    'path' => 'recruit-application/' . $application->aid,
+  );
+}
+
+/**
+ * Deletes a application.
+ */
+function recruit_application_delete(RecruitApplication $application) {
+  $application->delete();
+}
+
+/**
+ * Delete multiple applications.
+ *
+ * @param $aids
+ *   An array of application IDs.
+ */
+function recruit_application_delete_multiple(array $aids) {
+  entity_get_controller('recruit_application')->delete($aids);
+}
+
+/**
+ * Returns an initialized application object.
+ *
+ * @param $type
+ *   The machine-readable type of the application.
+ *
+ * @return
+ *   A application object with all default fields initialized.
+ */
+function recruit_application_new($type = '') {
+
+  $values = array(
+    'aid' => '',
+    'type' => $type,
+    'first_name' => '',
+    'last_name' => '',
+    'uid' => '',
+    'status' => 1,
+    'created' => '',
+    'changed' => '',
+  );
+  
+  return new RecruitApplication($values);
+}
+
+/**
+ * Returns an initialized application type object.
+ *
+ * @param $values
+ *   Pre populate application type object.
+ *
+ * @return
+ *   A application type object with all default fields initialized.
+ */
+function recruit_application_type_new($values = array()) {
+  return new RecruitApplicationType($values);
+}
+
+/**
+ * Create empty application object.
+ * It's better to use recruit_application_new();
+ *
+ * @param $values
+ *   You must pass $values array even if it's empty.
+ *   Example:
+ *   recruit_application_create(array('first_name' => '', 'last_name' => '', 'status' => 1, 'type' => $type));
+ *   or
+ *   recruit_application_create(array());
+ *
+ * @return
+ *   Empty application object.
+ */
+function recruit_application_create(array $values) {
+  return new RecruitApplication($values);
+}
+
+/**
+ * Saves a application to the database.
+ *
+ * @param $application
+ *   The application object.
+ */
+function recruit_application_save(RecruitApplication $application) {
+  return $application->save();
+}
+
+/**
+ * Saves a application type to the db.
+ */
+function recruit_application_type_save(RecruitApplicationType $type) {
+  return $type->save();
+}
+
+/**
+ * Deletes a application type from.
+ */
+function recruit_application_type_delete(RecruitApplicationType $type) {
+  $type->delete();
+}
+
+/**
+ * Implements hook_recruit_application_load()
+ */
+function recruit_application_recruit_application_load($applications) {
+  $types = recruit_application_get_types();
+  // Load the application's label.
+  foreach ($applications as $application) {
+    if (isset($types[$application->type])) {
+      $application->label = $types[$application->type]->label;
+    }
+  }
+}
+
+/**
+ * Implements hook_recruit_application_type_delete()
+ */
+function recruit_application_recruit_application_type_delete($type) {
+  // Delete all applications of this type.
+  if ($aids = array_keys(recruit_application_load_multiple(FALSE, array('type' => $type->type)))) {
+    recruit_application_delete_multiple($aids);
+  }
+}
+
+/**
+ * Determines whether the given user has access to a application.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create', 'delete'
+ *   or just 'edit' (being the same as 'create' or 'update').
+ * @param $application
+ *   Optionally a application or a application type o check access for. If nothing is
+ *   given, access for all applications is determined.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the global user.
+ * @return boolean
+ *   Whether access is allowed or not.
+ */
+function recruit_application_access($op, $application = NULL, $account = NULL) {
+  global $user;
+  $account = isset($account) ? $account : $user;
+
+  if (user_access('administer applications', $account)) {
+    return TRUE;
+  }
+
+  if ($op == 'view' && user_access('access applications', $account)) {
+    return TRUE;
+  }
+
+  if (isset($application) && is_string($application) && $op == 'create' && user_access('create ' . $application . ' applications', $account)) {
+    return TRUE;
+  }
+
+  if (isset($application) && ($op == 'update' || $op == 'delete')) {
+    if (user_access('edit any ' . $application->type . ' application', $account)) {
+      return TRUE;
+    }
+
+    // Others either don't have any access or must match the application uid.
+    if ($account->uid && user_access('edit own ' . $application->type . ' application', $account) && $application->uid == $account->uid) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Add default application attach field.
+ *
+ * @param $type
+ *   An application type.
+ *
+ * @return
+ *   Application attach field instance.
+ */
+function recruit_application_add_attach_field($type) {
+  $field_name = 'field_application_ref';
+
+  $field = field_info_field($field_name);
+  $instance = field_info_instance('recruit_application', $field_name, $type);
+  if (empty($field)) {
+    $field = array(
+      'field_name' => $field_name,
+      'type' => 'recruit_application_attach',
+      'locked' => TRUE,
+      'settings' => array(),
+      'entity_types' => array('recruit_application'),
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'field_name' => $field_name,
+      'entity_type' => 'recruit_application',
+      'bundle' => $type,
+      'label' => 'Reference',
+      'widget_type' => 'recruit_application_attach_form',
+      'settings' => array(),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'recruit_application_attach_link',
+        ),
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}
+
+/**
+ * Access callback for application apply form.
+ */
+function recruit_application_apply_access($op, $application = NULL, $account = NULL) {
+  global $user;
+  $account = isset($account) ? $account : $user;
+  $type = $application->type;
+
+  if (user_access('administer applications', $account) && recruit_application_entity_apply_access($type, $account)) {
+    return TRUE;
+  }
+
+  if (isset($application) && is_string($type) && $op == 'create') {
+    //Check public access.
+    if (user_access('create public ' . $type . ' applications', $account) && recruit_application_entity_apply_access($type, $account)){
+      return TRUE;
+    }
+    //Check general access.
+    if (user_access('create ' . $type . ' applications', $account) && recruit_application_entity_apply_access($type, $account)){
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Helper function to check if application can be attached on entity passed via url.
+ * recruit-application/application/apply?et=node&id=2
+ */
+function recruit_application_entity_apply_access($type, $account) {
+  $entity_type = strtr($_GET['et'], array('-' => '_'));
+  $entity_id = $_GET['id'];
+  
+  if (!empty($entity_type) && !empty($entity_id)) {
+    $entity_type_info = entity_get_info($entity_type);
+    
+    $bundle_label = $entity_type_info['entity keys']['bundle'];
+    $entity = recruit_entity_load_single($entity_type, $entity_id);
+
+    //Get language from attached entity.
+    if (empty($entity->language)) {
+      $lang = LANGUAGE_NONE;
+    }
+    else {
+      $lang = $entity->language;
+    }
+    
+    $fields = recruit_info_fields('recruit_application_reference', $entity_type);
+    foreach ($fields as $field) {
+      
+      //Check if field exists in loaded entity.
+      if (!empty($entity->$field['field_name'])) {
+        $field_values = $entity->$field['field_name'];
+
+        foreach ($field_values[$lang] as $value) {
+          if ($value['application_type'] == arg(1)) {
+            return TRUE;
+          }
+        }
+        
+      }
+    }
+  }
+  return FALSE;
+}
+
+
+/**
+ * Access callback for the entity API.
+ */
+function recruit_application_type_access($op, $type = NULL, $account = NULL) {
+  return user_access('administer application types', $account);
+}
+
+
+/**
+ * Checks to see if a given application type already exists.
+ *
+ * @param $type
+ *   The string to match against existing types.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether or not the application type exists.
+ */
+function recruit_application_type_validate_type_unique($type) {
+  // Look for a match of the type.
+  if ($match_id = db_query('SELECT type FROM {recruit_application_type} WHERE type = :type', array(':type' => $type))->fetchField()) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function recruit_application_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'recruit_application') . '/includes/views',
+  );
+}
+
+/**
+ * The class used for application entities.
+ */
+class RecruitApplication extends EntityDB {
+
+  public function __construct($values = array()) {
+    if (isset($values['user'])) {
+      $this->setUser($values['user']);
+      unset($values['user']);
+    }
+    parent::__construct($values, 'recruit_application');
+  }
+
+  /**
+   * Returns the user owning this application.
+   */
+  public function user() {
+    return user_load($this->uid);
+  }
+
+  /**
+   * Sets a new user owning this application.
+   */
+  public function setUser($account) {
+    $this->uid = $account->uid;
+  }
+
+
+  /**
+   * Gets the associated application type object.
+   *
+   * @return RecruitApplicationType
+   */
+  public function getType() {
+    return recruit_application_get_types($this->type);
+  }
+  
+  /**
+   * Gets the associated application type object.
+   *
+   * @return RecruitApplicationType
+   */
+  public function getFullName() {
+    return $this->first_name . ' ' . $this->last_name;
+  }
+
+  /**
+   * Returns the URI for this application. May be altered via hook_entity_info().
+   */
+  public function uri() {
+    return entity_uri('recruit_application', $this);
+  }
+
+  /**
+   * Returns the full url() for the application.
+   */
+  public function url() {
+    $uri = $this->uri();
+    return url($uri['path'], $uri);
+  }
+
+  /**
+   * Returns the drupal path to this application.
+   */
+  public function path() {
+    $uri = $this->uri();
+    return $uri['path'];
+  }
+
+  public function save() {
+    //Always set changed time when saving a application.
+    $this->changed = REQUEST_TIME;
+    
+    //If this is a new application.
+    if (empty($this->application_id)) {
+      $this->created = REQUEST_TIME;
+    }
+
+    parent::save();
+  }
+}
+
+/**
+ * Use a separate class for application types so we can specify some defaults
+ * modules may alter.
+ */
+class RecruitApplicationType extends EntityDB {
+
+  /**
+   * You must specify any custom fields here.
+   * Example:
+   * If you have a field in {entity_type} call help you must
+   * add public $help here.
+   */
+  public $type = '';
+  public $label = '';
+  public $description = '';
+  public $help = '';
+  public $weight = 0;
+
+  public function __construct($values = array()) {
+    parent::__construct($values, 'recruit_application_type');
+  }
+  public function save() {
+    $status = parent::save();
+    
+    if ($status == SAVED_NEW) {
+      //Add application ref field on new application types.
+      recruit_application_add_attach_field($this->type);
+    }
+  }
+  /**
+   * Returns whether the application type is locked, thus may not be deleted or renamed.
+   *
+   * application types provided in code are automatically treated as locked, as well
+   * as any fixed application type.
+   */
+  public function isLocked() {
+    return isset($this->status) && empty($this->is_new) && (($this->status & ENTITY_IN_CODE) || ($this->status & ENTITY_FIXED));
+  }
+}

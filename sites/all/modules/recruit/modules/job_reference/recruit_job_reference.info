@@ -1,0 +1,14 @@
+name = Job reference
+description = Custom field used to display jobs in any entities.
+
+package = Recruit Core
+dependencies[] = recruit_job
+dependencies[] = recruit_job_ui
+
+core = 7.x
+; Information added by drupal.org packaging script on 2011-03-30
+version = "7.x-1.0-alpha1"
+core = "7.x"
+project = "recruit"
+datestamp = "1301480769"
+

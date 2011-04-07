@@ -1,0 +1,281 @@
+<?php
+
+/**
+ * @file
+ * General UI module for recruit_job.module.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function recruit_job_ui_menu() {
+  $items = array();
+
+  //Frontend menu item.
+  $items['recruit-job/%recruit_job'] = array(
+    'page callback' => 'recruit_job_ui_view_page',
+    'page arguments' => array(1),
+    'access callback' => 'recruit_job_public_access',
+    'access arguments' => array('view', 1),
+    'type' => MENU_CALLBACK,
+    'file' => 'includes/recruit_job_ui.pages.inc',
+  );
+
+  $items['admin/recruit/jobs/add'] = array(
+    'title' => 'Create job',
+    'description' => 'Advertise job listing.',
+    'page callback' => 'recruit_job_ui_add_page',
+    'access callback' => 'recruit_job_ui_job_add_any_access',
+    'weight' => 10,
+    'file' => 'includes/recruit_job_ui.jobs.inc',
+  );
+
+  foreach (recruit_job_get_types() as $type => $job_type) {
+    $items['admin/recruit/jobs/add/' . strtr($type, array('_' => '-'))] = array(
+      'title' => 'Create @name',
+      'title arguments' => array('@name' => $job_type->label),
+      'description' => $job_type->description,
+      'page callback' => 'recruit_job_ui_job_form_wrapper',
+      'page arguments' => array(recruit_job_new($type)),
+      'access callback' => 'recruit_job_access',
+      'access arguments' => array('create', $type),
+      'file' => 'includes/recruit_job_ui.jobs.inc',
+    );
+  }
+
+  $items['admin/recruit/jobs/%recruit_job'] = array(
+    'title callback' => 'recruit_job_ui_job_title',
+    'title arguments' => array(3),
+    'page callback' => 'recruit_job_ui_admin_view_page',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_job_access',
+    'access arguments' => array('view', 3),
+    'file' => 'includes/recruit_job_ui.pages.inc',
+  );
+
+  $items['admin/recruit/jobs/%recruit_job/view'] = array(
+    'title' => 'View',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+    'access callback' => 'recruit_job_access',
+    'access arguments' => array('view', 3),
+  );
+  
+  $items['admin/recruit/jobs/%recruit_job/edit'] = array(
+    'title' => 'Edit',
+    'page callback' => 'recruit_job_ui_job_form_wrapper',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_job_access',
+    'access arguments' => array('update', 3),
+    'weight' => 0,
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'file' => 'includes/recruit_job_ui.jobs.inc',
+  );
+
+  $items['admin/recruit/jobs/%recruit_job/delete'] = array(
+    'title' => 'Delete a job',
+    'page callback' => 'recruit_job_ui_job_delete_form_wrapper',
+    'page arguments' => array(3),
+    'access callback' => 'recruit_job_access',
+    'access arguments' => array('update', 3),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'context' => MENU_CONTEXT_INLINE,
+    'file' => 'includes/recruit_job_ui.jobs.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Access callback: determine if the user can create any type of job.
+ */
+function recruit_job_ui_job_add_any_access() {
+  // Grant automatic access to users with administer jobs permission.
+  if (user_access('administer jobs')) {
+    return TRUE;
+  }
+
+  // Check the user's access on a job type basis.
+  foreach (recruit_job_get_types() as $type => $job_type) {
+    if (recruit_job_access('create', $type)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function recruit_job_ui_theme() {
+  return array(
+    'job_add_list' => array(
+      'variables' => array('content' => array()),
+      'file' => 'includes/recruit_job_ui.jobs.inc',
+    ),
+    'recruit_job' => array(
+      'variables' => array('job' => array(), 'view_mode' => NULL),
+      'path' => drupal_get_path('module', 'recruit_job_ui') . '/theme',
+      'template' => 'recruit-job',
+    ),
+  );
+}
+
+/**
+ * Sets the breadcrumb for administrative job pages.
+ *
+ * @param $job_types
+ */
+function recruit_job_ui_set_breadcrumb($job_types = FALSE) {
+  $breadcrumb = array(
+    l(t('Home'), '<front>'),
+    l(t('Administration'), 'admin'),
+    l(t('Recruit'), 'admin/recruit'),
+    l(t('Jobs'), 'admin/recruit/jobs'),
+  );
+
+  if ($job_types) {
+    $breadcrumb[] = l(t('Job types'), 'admin/Recruit/jobs/types');
+  }
+
+  drupal_set_breadcrumb($breadcrumb);
+}
+
+/**
+ * Implements hook_forms().
+ */
+function recruit_job_ui_forms($form_id, $args) {
+  $forms = array();
+
+  // Define a wrapper ID for the job add / edit form.
+  $forms['recruit_job_ui_job_form'] = array(
+    'callback' => 'recruit_job_job_form',
+  );
+
+  // Define a wrapper ID for the job delete confirmation form.
+  $forms['recruit_job_ui_job_delete_form'] = array(
+    'callback' => 'recruit_job_job_delete_form',
+  );
+
+  return $forms;
+}
+
+/**
+ * Custom menu item callback for titles.
+ *
+ * @param $job
+ *   The job object as loaded via the URL wildcard.
+ * @return
+ *   A page title of the format "Job Ref: [Job reference]".
+ */
+function recruit_job_ui_job_title($job) {
+  return t('Job Ref: @job_ref Title: @job_title', array('@job_ref' => $job->job_ref, '@job_title' => $job->title));
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * @see recruit_job_ui_job_delete_form()
+ */
+function recruit_job_ui_form_recruit_job_ui_job_delete_form_alter(&$form, &$form_state) {
+  $form['actions']['cancel']['#markup'] = l(t('Cancel'), 'admin/recruit/jobs');
+
+  $form['#submit'][] = 'recruit_job_ui_job_delete_form_submit';
+}
+
+/**
+ * Submit callback for recruit_job_ui_job_delete_form().
+ *
+ * @see recruit_job_ui_form_recruit_job_ui_job_delete_form_alter()
+ */
+function recruit_job_ui_job_delete_form_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/recruit/jobs';
+}
+
+/**
+ * Implements hook_menu_local_tasks_alter().
+ */
+function recruit_job_ui_menu_local_tasks_alter(&$data, $router_item, $root_path) {
+  if ($root_path == 'admin/recruit/jobs') {
+    $item = menu_get_item('admin/recruit/jobs/add');
+    if ($item['access']) {
+      $data['actions']['output'][] = array(
+        '#theme' => 'menu_local_action',
+        '#link' => $item,
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * @see recruit_job_ui_job_form()
+ */
+function recruit_job_ui_form_recruit_job_ui_job_form_alter(&$form, &$form_state) {
+  // Add a submit handler to the save button to add a redirect.
+  $form['actions']['submit']['#submit'][] = 'recruit_job_ui_job_form_submit';
+
+  // Add the save and continue button for new jobs.
+  if (empty($form_state['recruit_job']->jid)) {
+    $form['actions']['save_continue'] = array(
+      '#type' => 'submit',
+      '#value' => t('Save and add another'),
+      '#submit' => $form['actions']['submit']['#submit'],
+      '#suffix' => l('Cancel', 'admin/recruit/jobs'),
+      '#weight' => 45,
+    );
+  }
+  else {
+    $form['actions']['submit']['#suffix'] = l('Cancel', 'admin/recruit/jobs');
+  }
+}
+
+/**
+ * Submit callback for recruit_job_ui_job_form().
+ *
+ * @see recruit_job_ui_form_recruit_job_ui_job_form_alter()
+ */
+function recruit_job_ui_job_form_submit($form, &$form_state) {
+  // Set the redirect based on the button clicked.
+  if ($form_state['clicked_button']['#parents'][0] == 'save_continue') {
+    $form_state['redirect'] = 'admin/recruit/jobs/add/' . strtr($form_state['recruit_job']->type, array('_' => '-'));
+  }
+  elseif (arg(2) == 'jobs' && arg(3) == 'add') {
+    $form_state['redirect'] = 'admin/recruit/jobs';
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function recruit_job_ui_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'recruit_job') . '/includes/views',
+  );
+}
+
+function recruit_job_ui_preprocess_recruit_job(&$variables) {
+
+  if (!empty($variables['job'])) {
+    $job = $variables['job'];
+    $variables['content'] = $variables['job']->buildContent($variables['view_mode']);
+  }
+  $variables['job_ref'] = check_plain($job->job_ref);
+  $variables['created'] = format_date($job->created, 'custom', 'm/d/Y');
+  $variables['changed'] = format_date($job->changed, 'custom', 'm/d/Y');
+  
+  //Add css classes.
+  $variables['classes_array'][] = drupal_html_class('recruit-job-' . $job->type);
+  $variables['classes_array'][] = drupal_html_class('recruit-job-' . $job->jid);
+  $variables['classes_array'][] = drupal_html_class('recruit-job-' . $variables['view_mode']);
+  
+  $variables['theme_hook_suggestions'][] = 'recruit_job__' . $job->type;
+  $variables['theme_hook_suggestions'][] = 'recruit_job__' . $job->jid;
+  $variables['theme_hook_suggestions'][] = 'recruit_job__' . $variables['view_mode'];
+}
+
